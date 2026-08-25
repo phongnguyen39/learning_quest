@@ -1,0 +1,2015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Learning Quest — Math &amp; Reading Adventure</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap');
+  :root{
+    --bg:#1B1640; --gold:#FFC94A; --coral:#FF6B5E; --green:#3DDC97; --cream:#FBF3DD; --plum:#2E2350;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:'Nunito', system-ui, -apple-system, sans-serif;
+    background:var(--bg); color:var(--cream); min-height:100vh;
+    background-image:
+      radial-gradient(circle at 10% 20%, rgba(255,255,255,.5) 1px, transparent 1.5px),
+      radial-gradient(circle at 80% 12%, rgba(255,255,255,.4) 1px, transparent 1.5px),
+      radial-gradient(circle at 60% 70%, rgba(255,255,255,.3) 1px, transparent 1.5px),
+      radial-gradient(circle at 30% 85%, rgba(255,255,255,.4) 1px, transparent 1.5px),
+      radial-gradient(circle at 90% 55%, rgba(255,255,255,.3) 1px, transparent 1.5px),
+      radial-gradient(circle at 45% 40%, rgba(255,255,255,.3) 1px, transparent 1.5px);
+    background-size: 380px 380px;
+  }
+  .display{ font-family:'Fredoka','Comic Sans MS', system-ui, sans-serif; }
+  #app{ max-width:480px; margin:0 auto; padding:20px 18px 50px; }
+  button{ font-family:inherit; }
+  button:focus-visible, input:focus-visible{ outline:3px solid var(--gold); outline-offset:2px; }
+  .row{ display:flex; align-items:center; }
+  .between{ justify-content:space-between; }
+  .center{ justify-content:center; text-align:center; }
+  .gap-2{ gap:8px; } .gap-3{ gap:12px; }
+  .icon-btn{ width:36px; height:36px; border-radius:50%; border:none; background:var(--plum); color:var(--cream); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; }
+  .btn-primary{ width:100%; padding:14px 0; border-radius:999px; border:none; cursor:pointer; background:linear-gradient(90deg,var(--coral),var(--gold)); color:var(--plum); font-family:'Fredoka',sans-serif; font-size:16px; font-weight:600; }
+  .btn-secondary{ width:100%; padding:14px 0; border-radius:999px; cursor:pointer; background:transparent; color:var(--cream); border:2px solid rgba(255,255,255,.25); font-family:'Fredoka',sans-serif; font-size:15px; }
+  .card{ background:var(--plum); border-radius:20px; padding:20px; }
+  .realm-tile{ width:100%; border:none; cursor:pointer; border-radius:20px; padding:16px; margin-bottom:12px; box-shadow:0 6px 16px rgba(0,0,0,.3); }
+  .link-btn{ background:none; border:none; color:var(--gold); font-size:13px; cursor:pointer; }
+  @keyframes pop{ 0%{ transform:scale(.85); opacity:0; } 100%{ transform:scale(1); opacity:1; } }
+  @keyframes twinkle{ 0%,100%{ opacity:.4; } 50%{ opacity:1; } }
+  @media (prefers-reduced-motion: no-preference){
+    .pop{ animation:pop .35s ease-out; }
+    .twinkle{ animation:twinkle 1.8s ease-in-out infinite; }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+/* ----------------------- Supabase (multi-student cloud sync) ----------------------- */
+// Credentials for the shared family/classroom project. Anon key + Row Level
+// Security policy "anon full access" (see supabase-schema.sql) — meant for a
+// private, not-widely-shared deployment URL, not a public multi-tenant app.
+const SUPABASE_URL = "https://elgymzclvddcvsmipqoi.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVsZ3ltemNsdmRkY3ZzbWlwcW9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4Mjg0OTcsImV4cCI6MjEwMTQwNDQ5N30.5WvhelM7r8t5meAWaz5OFT6wHp63LUQ9amDH_SO9D4o";
+
+async function sbFetch(path, opts) {
+  opts = opts || {};
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: "Bearer " + SUPABASE_ANON_KEY,
+    "Content-Type": "application/json",
+    ...(opts.headers || {}),
+  };
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Supabase ${opts.method || "GET"} ${path} failed: ${res.status} ${text}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// Fire-and-forget: local save always wins immediately, cloud sync happens in
+// the background and silently no-ops if offline. Never blocks the UI.
+function cloudSync(fn) {
+  Promise.resolve().then(fn).catch((e) => console.warn("[cloud sync]", e.message));
+}
+
+function upsertStudentCloud(student) {
+  return sbFetch(`students?on_conflict=id`, {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify([{ id: student.id, name: student.name, avatar: student.avatar, grade: student.grade || 3 }]),
+  });
+}
+
+function upsertTopicProgressCloud(studentId, topicId, stats) {
+  return sbFetch(`topic_progress?on_conflict=student_id,topic_id`, {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify([{
+      student_id: studentId, topic_id: topicId,
+      times_played: stats.timesPlayed, best_percent: stats.bestPercent,
+      updated_at: new Date().toISOString(),
+    }]),
+  });
+}
+
+function upsertUnitProgressCloud(studentId, topicId, subject, up) {
+  return sbFetch(`unit_progress?on_conflict=student_id,topic_id`, {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify([{
+      student_id: studentId, topic_id: topicId, subject,
+      practice_count: up.practiceCount, test_best: up.testBest,
+      test_times_taken: up.testTimesTaken, passed: up.passed,
+      updated_at: new Date().toISOString(),
+    }]),
+  });
+}
+
+function logSessionCloud(studentId, topicId, subject, sessionType, correct, total, percent) {
+  return sbFetch(`sessions`, {
+    method: "POST",
+    body: JSON.stringify([{ student_id: studentId, topic_id: topicId, subject, session_type: sessionType, correct, total, percent }]),
+  });
+}
+
+/* ----------------------------- helpers ----------------------------- */
+
+const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+function genUuid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+const shuffle = (arr) => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
+const buildOptions = (correct, candidates) => {
+  const set = new Set(candidates.filter((n) => n !== correct && n >= 0));
+  let arr = shuffle([...set]).slice(0, 3);
+  let tries = 0;
+  while (arr.length < 3 && tries < 30) {
+    const w = correct + randInt(1, 9) * (Math.random() < 0.5 ? -1 : 1);
+    if (w !== correct && w >= 0 && !arr.includes(w)) arr.push(w);
+    tries++;
+  }
+  return shuffle([correct, ...arr].map(String));
+};
+
+const escapeHtml = (str) => String(str).replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+const QUESTIONS_PER_SESSION = 6;
+
+/* ------------------------- generated math topics ------------------------- */
+
+function genMultiplication(grade) {
+  if (grade === 5) {
+    const a = randInt(11, 89);
+    const b = randInt(11, 89);
+    const correct = a * b;
+    const candidates = [
+      correct + a, correct - a, correct + b, correct - b,
+      correct + 10, correct - 10, correct + 100, correct - 100,
+    ];
+    return { q: `${a} \u00D7 ${b} = ?`, options: buildOptions(correct, candidates), correct: String(correct), visual: { type: "areaMult", a, b } };
+  }
+  if (grade === 4) {
+    const a = randInt(11, 89);
+    const b = randInt(2, 9);
+    const correct = a * b;
+    const ones = a % 10;
+    const candidates = [
+      correct + b, correct - b, correct + 10 * b, correct - 10 * b,
+      ones * b, correct + 1, correct - 1,
+    ];
+    return { q: `${a} \u00D7 ${b} = ?`, options: buildOptions(correct, candidates), correct: String(correct), visual: { type: "basetenMult", n: a, times: b } };
+  }
+  const a = randInt(2, 12);
+  const b = randInt(2, 12);
+  const correct = a * b;
+  const candidates = [
+    correct + a, correct - a, correct + b, correct - b,
+    a * (b + 1), a * (b - 1), correct + 1, correct - 1, correct + 2, correct - 2,
+  ];
+  return { q: `${a} \u00D7 ${b} = ?`, options: buildOptions(correct, candidates), correct: String(correct), visual: { type: "array", rows: a, cols: b } };
+}
+
+function genDivision(grade) {
+  if (grade === 5) {
+    const divisor = randInt(4, 9);
+    const quotient = randInt(15, 45);
+    const remainder = randInt(1, divisor - 1);
+    const dividend = divisor * quotient + remainder;
+    const correct = `${quotient} R ${remainder}`;
+    const wrongSet = new Set([
+      `${quotient} R ${(remainder % (divisor - 1)) + 1}`,
+      `${quotient - 1} R ${remainder}`,
+      `${quotient + 1} R ${remainder}`,
+      `${quotient} R ${Math.max(0, remainder - 1)}`,
+    ]);
+    wrongSet.delete(correct);
+    let opts = shuffle([...wrongSet]).slice(0, 3);
+    let tries = 0;
+    while (opts.length < 3 && tries < 30) {
+      const q2 = quotient + randInt(-3, 3);
+      const r2 = randInt(0, divisor - 1);
+      const cand = `${q2} R ${r2}`;
+      if (q2 > 0 && cand !== correct && !opts.includes(cand)) opts.push(cand);
+      tries++;
+    }
+    return { q: `${dividend} \u00F7 ${divisor} = ?`, options: shuffle([correct, ...opts]), correct, visual: { type: "divideBig", dividend, divisor } };
+  }
+  if (grade === 4) {
+    const divisor = randInt(3, 9);
+    const quotient = randInt(4, 12);
+    const remainder = randInt(1, divisor - 1);
+    const dividend = divisor * quotient + remainder;
+    const correct = `${quotient} R ${remainder}`;
+    const wrongSet = new Set([
+      `${quotient} R ${(remainder % (divisor - 1)) + 1}`,
+      `${quotient - 1} R ${remainder}`,
+      `${quotient + 1} R ${remainder}`,
+      `${quotient} R ${Math.max(0, remainder - 1)}`,
+    ]);
+    wrongSet.delete(correct);
+    let opts = shuffle([...wrongSet]).slice(0, 3);
+    let tries = 0;
+    while (opts.length < 3 && tries < 30) {
+      const q2 = quotient + randInt(-2, 2);
+      const r2 = randInt(0, divisor - 1);
+      const cand = `${q2} R ${r2}`;
+      if (q2 > 0 && cand !== correct && !opts.includes(cand)) opts.push(cand);
+      tries++;
+    }
+    return { q: `${dividend} \u00F7 ${divisor} = ?`, options: shuffle([correct, ...opts]), correct, visual: { type: "divide", dividend, divisor } };
+  }
+  const divisor = randInt(2, 12);
+  const quotient = randInt(2, 12);
+  const dividend = divisor * quotient;
+  const correct = quotient;
+  const candidates = [quotient + 1, quotient - 1, quotient + 2, quotient - 2, divisor, dividend - quotient];
+  return { q: `${dividend} \u00F7 ${divisor} = ?`, options: buildOptions(correct, candidates), correct: String(correct), visual: { type: "divide", dividend, divisor } };
+}
+
+function genAddSub(grade) {
+  const isAdd = Math.random() < 0.5;
+  if (isAdd) {
+    let a, b;
+    if (grade === 5) {
+      do {
+        a = randInt(1005, 8995);
+        b = randInt(1005, 8995);
+      } while (a % 10 + b % 10 < 10);
+    } else if (grade === 4) {
+      do {
+        a = randInt(105, 895);
+        b = randInt(105, 895);
+      } while (a % 10 + b % 10 < 10);
+    } else {
+      do {
+        a = randInt(14, 89);
+        b = randInt(14, 89);
+      } while (a % 10 + b % 10 < 10);
+    }
+    const correct = a + b;
+    const noCarry = Math.floor(a / 10) * 10 + Math.floor(b / 10) * 10 + ((a % 10 + b % 10) % 10);
+    const candidates = [correct + 10, correct - 10, correct + 1, correct - 1, noCarry, correct + 100, correct - 100, correct + 1000, correct - 1000];
+    const visual = grade === 5 ? { type: "numCards", a, b, op: "+" } : { type: "baseten2", a, b, op: "+" };
+    return { q: `${a} + ${b} = ?`, options: buildOptions(correct, candidates), correct: String(correct), visual };
+  } else {
+    let a, b;
+    if (grade === 5) {
+      do {
+        a = randInt(2000, 8999);
+        b = randInt(1005, a - 500);
+      } while (a % 10 >= b % 10);
+    } else if (grade === 4) {
+      do {
+        a = randInt(200, 899);
+        b = randInt(105, a - 50);
+      } while (a % 10 >= b % 10);
+    } else {
+      do {
+        a = randInt(30, 99);
+        b = randInt(14, a - 1);
+      } while (a % 10 >= b % 10);
+    }
+    const correct = a - b;
+    const noBorrow = Math.abs(Math.floor(a / 10) * 10 - Math.floor(b / 10) * 10 + (a % 10 - b % 10));
+    const candidates = [correct + 10, correct - 10, correct + 1, correct - 1, noBorrow, correct + 100, correct - 100, correct + 1000, correct - 1000];
+    const visual = grade === 5 ? { type: "numCards", a, b, op: "\u2212" } : { type: "baseten2", a, b, op: "\u2212" };
+    return { q: `${a} \u2212 ${b} = ?`, options: buildOptions(correct, candidates), correct: String(correct), visual };
+  }
+}
+
+/* ------------------------------ question banks ------------------------------ */
+
+const PLACE_VALUE_BANK = [
+  { q: "What digit is in the tens place of 4,582?", options: ["8", "5", "4", "2"], correct: "8" },
+  { q: "What digit is in the hundreds place of 3,719?", options: ["3", "7", "1", "9"], correct: "7" },
+  { q: "What is the value of the 6 in 6,248?", options: ["6", "60", "600", "6,000"], correct: "6,000" },
+  { q: "What is the value of the 3 in 1,932?", options: ["3", "30", "300", "3,000"], correct: "30" },
+  { q: "Which number has a 5 in the thousands place?", options: ["5,213", "1,532", "9,805", "2,051"], correct: "5,213" },
+  { q: "What is 4,000 + 700 + 50 + 6 written as a number?", options: ["4,756", "4,765", "4,576", "4,567"], correct: "4,756" },
+  { q: "What is 3,000 + 200 + 9 as a standard number?", options: ["3,209", "3,029", "3,290", "3,902"], correct: "3,209" },
+  { q: "Write 7,063 in expanded form.", options: ["7,000 + 60 + 3", "7,000 + 600 + 3", "700 + 60 + 3", "7,000 + 60 + 30"], correct: "7,000 + 60 + 3" },
+  { q: "Which number is greater: 4,521 or 4,512?", options: ["4,521", "4,512", "They are equal", "Can't tell"], correct: "4,521" },
+  { q: "Which symbol makes this true: 6,205 ___ 6,250?", options: ["<", ">", "=", "+"], correct: "<" },
+  { q: "Round 482 to the nearest ten.", options: ["480", "490", "400", "500"], correct: "480" },
+  { q: "Round 3,650 to the nearest hundred.", options: ["3,700", "3,600", "3,650", "4,000"], correct: "3,700" },
+  { q: "How many hundreds are in 900?", options: ["9", "90", "900", "19"], correct: "9" },
+  { q: "What digit is in the ones place of 9,164?", options: ["9", "1", "6", "4"], correct: "4" },
+  { q: "Which number is the same as 8 hundreds, 3 tens, 5 ones?", options: ["835", "853", "385", "538"], correct: "835" },
+  { q: "What is 5,308 rounded to the nearest thousand?", options: ["5,000", "6,000", "5,300", "5,400"], correct: "5,000" },
+  { q: "What digit is in the ten thousands place of 24,816?", options: ["2", "4", "8", "1"], correct: "2" , grade: 4 },
+  { q: "What is the value of the 7 in 47,302?", options: ["7", "700", "7,000", "70,000"], correct: "7,000" , grade: 4 },
+  { q: "Round 68,450 to the nearest thousand.", options: ["68,000", "69,000", "68,500", "70,000"], correct: "68,000" , grade: 4 },
+  { q: "Round 34,920 to the nearest ten thousand.", options: ["30,000", "40,000", "35,000", "34,000"], correct: "30,000" , grade: 4 },
+  { q: "Which number is greater: 56,204 or 56,240?", options: ["56,204", "56,240", "They are equal", "Can't tell"], correct: "56,240" , grade: 4 },
+  { q: "How many ten-thousands are in 90,000?", options: ["9", "90", "900", "9,000"], correct: "9" , grade: 4 },
+  { q: "What digit is in the hundred thousands place of 384,729?", options: ["3", "8", "4", "7"], correct: "3", grade: 5 },
+  { q: "What is the value of the 5 in 502,841?", options: ["5", "50", "500,000", "5,000"], correct: "500,000", grade: 5 },
+  { q: "Round 247,500 to the nearest ten thousand.", options: ["250,000", "240,000", "248,000", "200,000"], correct: "250,000", grade: 5 },
+  { q: "Which number is greater: 384,201 or 384,210?", options: ["384,201", "384,210", "They are equal", "Can't tell"], correct: "384,210", grade: 5 },
+  { q: "Write 600,000 + 20,000 + 4,000 + 300 + 50 + 7 as a standard number.", options: ["624,357", "624,375", "642,357", "624,053"], correct: "624,357", grade: 5 },
+  { q: "How many hundred-thousands are in 700,000?", options: ["7", "70", "700", "7,000"], correct: "7", grade: 5 },
+];
+
+const FRACTIONS_BANK = [
+  { q: "A pizza is cut into 8 equal slices. You eat 3 slices. What fraction of the pizza did you eat?", options: ["3/8", "3/5", "8/3", "5/8"], correct: "3/8" },
+  { q: "Which fraction is bigger: 1/2 or 1/4?", options: ["1/2", "1/4", "They are equal", "Can't tell"], correct: "1/2" },
+  { q: "Which fraction is bigger: 3/8 or 5/8?", options: ["3/8", "5/8", "They are equal", "Not enough information"], correct: "5/8" },
+  { q: "There are 12 cookies. 1/3 of them are chocolate chip. How many cookies are chocolate chip?", options: ["4", "3", "6", "9"], correct: "4" },
+  { q: "There are 20 marbles. 1/4 of them are blue. How many marbles are blue?", options: ["5", "4", "10", "8"], correct: "5" },
+  { q: "Which fraction equals 1/2?", options: ["2/4", "1/3", "3/8", "2/3"], correct: "2/4" },
+  { q: "Which fraction equals one whole?", options: ["4/4", "3/4", "1/4", "2/4"], correct: "4/4" },
+  { q: "A chocolate bar has 6 equal pieces. You give away 2 pieces. What fraction is left?", options: ["4/6", "2/6", "6/4", "4/2"], correct: "4/6" },
+  { q: "What is 1/4 + 1/4?", options: ["2/4", "2/8", "1/8", "4/4"], correct: "2/4", explain: "1/4 + 1/4 = 2/4, which is the same as 1/2!" },
+  { q: "Which is greater: 1/3 or 1/6?", options: ["1/3", "1/6", "Equal", "Not enough info"], correct: "1/3" },
+  { q: "A garden has 10 flowers. 2/5 of them are red. How many flowers are red?", options: ["4", "2", "5", "8"], correct: "4" },
+  { q: "Which fraction shows 3 out of 4 equal parts?", options: ["3/4", "4/3", "3/3", "1/4"], correct: "3/4" },
+  { q: "If you eat 1/2 of a sandwich and your sister eats the other 1/2, how much is left?", options: ["None (0)", "1/2", "1/4", "All of it"], correct: "None (0)" },
+  { q: "Which fraction is the smallest?", options: ["1/2", "1/8", "1/4", "1/3"], correct: "1/8" },
+  { q: "A cake is cut into 6 equal slices. 2 slices are eaten. What fraction of the cake is left?", options: ["4/6", "2/6", "6/6", "4/4"], correct: "4/6" },
+  { q: "Which pair of fractions are equal?", options: ["1/2 and 2/4", "1/3 and 1/4", "2/3 and 3/2", "1/2 and 1/3"], correct: "1/2 and 2/4" },
+  { q: "Which fraction is bigger: 2/3 or 3/5?", options: ["2/3", "3/5", "They are equal", "Can't tell"], correct: "2/3" , grade: 4 },
+  { q: "What is 2/6 + 3/6?", options: ["5/6", "5/12", "1/6", "6/6"], correct: "5/6" , grade: 4 },
+  { q: "What is 5/8 \u2212 2/8?", options: ["3/8", "3/16", "7/8", "2/8"], correct: "3/8" , grade: 4 },
+  { q: "Which fraction is equivalent to 3/4?", options: ["6/8", "4/3", "3/8", "8/3"], correct: "6/8" , grade: 4 },
+  { q: "Mia ate 1 whole pizza plus 1/4 of another. How many quarter-slices did she eat in total?", options: ["5", "4", "6", "8"], correct: "5" , grade: 4 },
+  { q: "Which fraction is NOT equivalent to 1/2?", options: ["2/4", "3/6", "2/5", "4/8"], correct: "2/5" , grade: 4 },
+  { q: "What is 1/4 + 1/8?", options: ["3/8", "2/12", "1/2", "2/8"], correct: "3/8", grade: 5 },
+  { q: "What is 2/3 \u2212 1/6?", options: ["1/2", "1/3", "2/3", "5/6"], correct: "1/2", grade: 5 },
+  { q: "Which fraction is 6/8 written in simplest form?", options: ["3/4", "2/3", "4/6", "6/8"], correct: "3/4", grade: 5 },
+  { q: "What is 2/5 \u00D7 10?", options: ["4", "5", "2", "20"], correct: "4", grade: 5 },
+  { q: "Which mixed number equals 7/2?", options: ["3 1/2", "2 1/2", "3 1/3", "4 1/2"], correct: "3 1/2", grade: 5 },
+  { q: "What is 5/6 \u2212 1/3?", options: ["1/2", "1/3", "2/3", "1/6"], correct: "1/2", grade: 5 },
+];
+
+const TIME_BANK = [
+  { clock: { hour: 3, minute: 0 }, q: "What time does the clock show?", options: ["3:00", "12:03", "3:15", "2:00"], correct: "3:00" },
+  { clock: { hour: 7, minute: 30 }, q: "What time does the clock show?", options: ["7:30", "6:30", "7:15", "7:45"], correct: "7:30" },
+  { clock: { hour: 10, minute: 15 }, q: "What time does the clock show?", options: ["10:15", "10:45", "9:15", "3:10"], correct: "10:15" },
+  { clock: { hour: 2, minute: 45 }, q: "What time does the clock show?", options: ["2:45", "2:15", "3:45", "9:02"], correct: "2:45" },
+  { clock: { hour: 6, minute: 5 }, q: "What time does the clock show?", options: ["6:05", "6:25", "1:30", "5:35"], correct: "6:05" },
+  { clock: { hour: 9, minute: 50 }, q: "What time does the clock show?", options: ["9:50", "10:50", "9:10", "8:50"], correct: "9:50" },
+  { clock: { hour: 12, minute: 20 }, q: "What time does the clock show?", options: ["12:20", "4:12", "12:40", "1:20"], correct: "12:20" },
+  { clock: { hour: 4, minute: 35 }, q: "What time does the clock show?", options: ["4:35", "7:04", "4:55", "3:35"], correct: "4:35" },
+  { q: "If it is 3:15 and you wait 30 minutes, what time will it be?", options: ["3:45", "3:30", "4:15", "3:50"], correct: "3:45" },
+  { q: "School starts at 8:00 and lunch is 3 hours later. What time is lunch?", options: ["11:00", "10:00", "12:00", "8:30"], correct: "11:00" },
+  { q: "A movie starts at 6:45 and lasts 1 hour. What time does it end?", options: ["7:45", "7:15", "8:45", "6:15"], correct: "7:45" },
+  { q: "It is 2:50. What time will it be in 20 minutes?", options: ["3:10", "2:30", "3:00", "3:20"], correct: "3:10" },
+  { q: "How many minutes are in 2 hours?", options: ["120", "100", "90", "200"], correct: "120" },
+  { q: "How many hours are in 180 minutes?", options: ["3", "2", "4", "18"], correct: "3" },
+  { q: "It is 11:45 AM. What time will it be in 30 minutes?", options: ["12:15 PM", "12:15 AM", "11:15 AM", "1:15 PM"], correct: "12:15 PM", grade: 4 },
+  { q: "A train departs at 9:50 AM and the ride takes 25 minutes. What time does it arrive?", options: ["10:15 AM", "9:75 AM", "10:25 AM", "9:15 AM"], correct: "10:15 AM", grade: 4 },
+  { q: "It is 3:20 PM. What time was it 50 minutes ago?", options: ["2:30 PM", "2:30 AM", "2:70 PM", "3:70 PM"], correct: "2:30 PM", grade: 4 },
+  { q: "A movie starts at 7:40 PM and ends at 9:15 PM. How long is the movie?", options: ["1 hour 35 minutes", "1 hour 25 minutes", "1 hour 45 minutes", "2 hours 5 minutes"], correct: "1 hour 35 minutes", grade: 4 },
+  { q: "School ends at 3:15 PM. Soccer practice starts 45 minutes later. What time does practice start?", options: ["4:00 PM", "3:60 PM", "4:15 PM", "3:45 PM"], correct: "4:00 PM", grade: 4 },
+  { q: "It is 11:30 PM. What time will it be in 45 minutes?", options: ["12:15 AM", "12:15 PM", "11:75 PM", "12:75 AM"], correct: "12:15 AM", grade: 4 },
+  { q: "A train leaves at 8:15 AM and arrives at 11:50 AM. How long was the trip?", options: ["3 hours 35 minutes", "3 hours 45 minutes", "2 hours 35 minutes", "3 hours 25 minutes"], correct: "3 hours 35 minutes", grade: 5 },
+  { q: "It is 10:40 AM. What time will it be in 3 hours and 35 minutes?", options: ["2:15 PM", "1:15 PM", "2:15 AM", "3:15 PM"], correct: "2:15 PM", grade: 5 },
+  { q: "A flight departs at 6:25 PM and the flight is 4 hours and 50 minutes long. What time does it land?", options: ["11:15 PM", "11:15 AM", "10:15 PM", "12:15 AM"], correct: "11:15 PM", grade: 5 },
+  { q: "Camp starts at 9:00 AM. Morning activities run for 2 hours 45 minutes, then there's a 30-minute lunch. What time does lunch end?", options: ["12:15 PM", "11:45 AM", "12:45 PM", "1:15 PM"], correct: "12:15 PM", grade: 5 },
+  { q: "How many minutes are in 4 hours?", options: ["240", "200", "180", "260"], correct: "240", grade: 5 },
+  { q: "A movie marathon starts at 1:30 PM. The first movie is 1 hour 50 minutes, and the second starts right after and lasts 2 hours 10 minutes. What time does the marathon end?", options: ["5:30 PM", "5:30 AM", "5:00 PM", "4:30 PM"], correct: "5:30 PM", grade: 5 },
+];
+
+const MONEY_BANK = [
+  { q: "You have 2 quarters and 3 dimes. How much money do you have?", options: ["$0.80", "$0.55", "$0.75", "$0.90"], correct: "$0.80" },
+  { q: "You have 3 dimes, 2 nickels, and 4 pennies. How much do you have?", options: ["$0.44", "$0.34", "$0.54", "$0.40"], correct: "$0.44" },
+  { q: "A toy costs $4.25. You pay with a $5 bill. How much change do you get?", options: ["$0.75", "$1.25", "$0.25", "$0.85"], correct: "$0.75" },
+  { q: "A book costs $7.50. You have $10. How much will you have left after buying it?", options: ["$2.50", "$3.50", "$2.00", "$1.50"], correct: "$2.50" },
+  { q: "Which coin is worth 25 cents?", options: ["Quarter", "Dime", "Nickel", "Penny"], correct: "Quarter" },
+  { q: "How many nickels make a dollar?", options: ["20", "10", "100", "4"], correct: "20" },
+  { q: "How many dimes make a dollar?", options: ["10", "20", "5", "100"], correct: "10" },
+  { q: "You buy a snack for $1.35 and pay with 2 one-dollar bills. How much change do you get?", options: ["$0.65", "$0.75", "$0.35", "$1.65"], correct: "$0.65" },
+  { q: "Which amount is the same as 3 quarters and 1 dime?", options: ["$0.85", "$0.95", "$0.75", "$1.00"], correct: "$0.85" },
+  { q: "You have $12.40 and spend $5.15. How much do you have left?", options: ["$7.25", "$7.15", "$6.25", "$17.55"], correct: "$7.25" },
+  { q: "Which is worth more: 4 quarters or 9 dimes?", options: ["4 quarters", "9 dimes", "They are equal", "Not enough information"], correct: "4 quarters" },
+  { q: "You earn $2 for every chore. You do 5 chores. How much money do you earn?", options: ["$10.00", "$7.00", "$5.00", "$12.00"], correct: "$10.00" },
+  { q: "A pencil costs 45 cents and an eraser costs 30 cents. How much do they cost together?", options: ["$0.75", "$0.65", "$0.85", "$1.05"], correct: "$0.75" },
+  { q: "Which coin is worth the least?", options: ["Penny", "Nickel", "Dime", "Quarter"], correct: "Penny" },
+  { q: "You buy a sandwich for $4.25 and a juice for $1.75. You pay with a $10 bill. How much change do you get?", options: ["$4.00", "$3.00", "$5.00", "$4.50"], correct: "$4.00", grade: 4 },
+  { q: "A toy costs $12.50. You have a $5 bill and three $1 bills. Do you have enough money?", options: ["No, you need $4.50 more", "Yes, exactly enough", "No, you need $2.50 more", "Yes, with $1.50 left over"], correct: "No, you need $4.50 more", grade: 4 },
+  { q: "Two notebooks cost $3.40 each. How much do they cost together?", options: ["$6.80", "$6.40", "$7.20", "$3.40"], correct: "$6.80", grade: 4 },
+  { q: "You have $20. You spend $8.75 on a book and $5.50 on a poster. How much money do you have left?", options: ["$5.75", "$6.25", "$5.25", "$4.75"], correct: "$5.75", grade: 4 },
+  { q: "A pack of pencils costs $2.15. How much would 3 packs cost?", options: ["$6.45", "$6.15", "$6.75", "$5.45"], correct: "$6.45", grade: 4 },
+  { q: "You buy a shirt for $14.00 and get a $3.50 discount. How much do you pay?", options: ["$10.50", "$11.50", "$9.50", "$17.50"], correct: "$10.50", grade: 4 },
+  { q: "A meal costs $8.50. You add a $1.50 tip. You pay with a $20 bill. How much change do you get?", options: ["$10.00", "$9.00", "$11.00", "$8.50"], correct: "$10.00", grade: 5 },
+  { q: "Apples cost $0.50 each. How much would a dozen (12) apples cost?", options: ["$6.00", "$5.50", "$6.50", "$5.00"], correct: "$6.00", grade: 5 },
+  { q: "A 6-pack of juice costs $4.80. How much does each juice cost?", options: ["$0.80", "$0.60", "$1.20", "$0.90"], correct: "$0.80", grade: 5 },
+  { q: "You buy 3 shirts for $9.25 each and 2 hats for $6.50 each. How much is your total before tax?", options: ["$40.75", "$38.75", "$42.75", "$35.75"], correct: "$40.75", grade: 5 },
+  { q: "A store has a sale: buy one toy for $15.00, get the second toy half off. How much do two toys cost together?", options: ["$22.50", "$30.00", "$20.00", "$25.00"], correct: "$22.50", grade: 5 },
+  { q: "You have three $5 bills, two $1 bills, and one quarter. How much money do you have in total?", options: ["$17.25", "$16.25", "$17.00", "$18.25"], correct: "$17.25", grade: 5 },
+];
+
+const MEASUREMENT_BANK = [
+  { q: "Which unit would you use to measure the length of a pencil?", options: ["Inches", "Miles", "Pounds", "Gallons"], correct: "Inches" },
+  { q: "Which unit would you use to measure how much a watermelon weighs?", options: ["Pounds", "Inches", "Feet", "Cups"], correct: "Pounds" },
+  { q: "Which unit would you use to measure how much water is in a bathtub?", options: ["Gallons", "Inches", "Pounds", "Feet"], correct: "Gallons" },
+  { q: "How many inches are in 1 foot?", options: ["12", "10", "100", "6"], correct: "12" },
+  { q: "How many feet are in 1 yard?", options: ["3", "2", "10", "12"], correct: "3" },
+  { q: "Which is longer: 1 foot or 1 yard?", options: ["1 yard", "1 foot", "They are equal", "Not enough info"], correct: "1 yard" },
+  { q: "A rectangle has a length of 6 cm and a width of 4 cm. What is its perimeter?", options: ["20 cm", "24 cm", "10 cm", "16 cm"], correct: "20 cm" },
+  { q: "A rectangle has a length of 5 inches and a width of 3 inches. What is its area?", options: ["15 sq in", "8 sq in", "16 sq in", "10 sq in"], correct: "15 sq in" },
+  { q: "How many sides does a triangle have?", options: ["3", "4", "5", "6"], correct: "3" },
+  { q: "How many sides does a hexagon have?", options: ["6", "5", "8", "4"], correct: "6" },
+  { q: "A square has 4 sides that are each 5 cm long. What is its perimeter?", options: ["20 cm", "25 cm", "10 cm", "15 cm"], correct: "20 cm" },
+  { q: "Which shape has exactly 4 equal sides and 4 right angles?", options: ["Square", "Triangle", "Circle", "Pentagon"], correct: "Square" },
+  { q: "What do we call an angle that looks like the corner of a piece of paper?", options: ["Right angle", "Straight angle", "Curved angle", "Sharp angle"], correct: "Right angle" },
+  { q: "Which unit would you use to measure how heavy a feather is?", options: ["Ounces", "Pounds", "Tons", "Gallons"], correct: "Ounces" },
+  { q: "A rectangle is 8 m long and 2 m wide. What is its perimeter?", options: ["20 m", "16 m", "10 m", "12 m"], correct: "20 m" },
+  { q: "How many cups are in 1 pint?", options: ["2", "4", "1", "3"], correct: "2" },
+  { q: "How many inches are in 3 feet?", options: ["36", "24", "30", "12"], correct: "36", grade: 4 },
+  { q: "A rectangle is 9 feet long and 5 feet wide. What is its area?", options: ["45 square feet", "14 square feet", "40 square feet", "50 square feet"], correct: "45 square feet", grade: 4 },
+  { q: "How many feet are in 2 yards?", options: ["6", "3", "9", "12"], correct: "6", grade: 4 },
+  { q: "A rectangle has a length of 7 m and a width of 9 m. What is its perimeter?", options: ["32 m", "16 m", "63 m", "30 m"], correct: "32 m", grade: 4 },
+  { q: "A square has 4 sides that are each 8 inches long. What is its area?", options: ["64 square inches", "32 square inches", "16 square inches", "36 square inches"], correct: "64 square inches", grade: 4 },
+  { q: "How many yards are in 18 feet?", options: ["6", "5", "9", "3"], correct: "6", grade: 4 },
+  { q: "A rectangular box is 4 inches long, 3 inches wide, and 2 inches tall. What is its volume?", options: ["24 cubic inches", "9 cubic inches", "48 cubic inches", "12 cubic inches"], correct: "24 cubic inches", grade: 5 },
+  { q: "How many inches are in 3 yards?", options: ["108", "96", "36", "72"], correct: "108", grade: 5 },
+  { q: "A rectangle has an area of 48 square feet. If its width is 6 feet, what is its length?", options: ["8 feet", "6 feet", "42 feet", "9 feet"], correct: "8 feet", grade: 5 },
+  { q: "A rectangular prism is 5 cm long, 4 cm wide, and 3 cm tall. What is its volume?", options: ["60 cubic centimeters", "12 cubic centimeters", "35 cubic centimeters", "20 cubic centimeters"], correct: "60 cubic centimeters", grade: 5 },
+  { q: "A rectangle is 20 feet long and 10 feet wide. What is its perimeter?", options: ["60 feet", "200 feet", "30 feet", "50 feet"], correct: "60 feet", grade: 5 },
+  { q: "How many square feet are in 2 square yards?", options: ["18", "9", "6", "27"], correct: "18", grade: 5 },
+];
+
+const WORD_PROBLEMS_BANK = [
+  { q: "Mia has 4 packs of stickers with 6 stickers in each pack. She gives 5 stickers to her friend. How many stickers does she have left?", options: ["19", "18", "20", "17"], correct: "19", icon: "\uD83C\uDF1F" , grade: 4 },
+  { q: "A baker makes 8 trays of muffins with 6 muffins on each tray. She sells 15 muffins. How many muffins are left?", options: ["33", "32", "34", "30"], correct: "33", icon: "\uD83E\uDDC1" , grade: 4 },
+  { q: "Jake had $50. He bought 3 books for $9 each. How much money does he have left?", options: ["$23", "$24", "$22", "$21"], correct: "$23", icon: "\uD83D\uDCDA" , grade: 4 },
+  { q: "A farmer has 7 rows of corn with 9 plants in each row. He plants 11 more plants. How many plants does he have now?", options: ["74", "73", "75", "63"], correct: "74", icon: "\uD83C\uDF3D" , grade: 4 },
+  { q: "Liam read 14 pages on Monday and 19 pages on Tuesday. His book has 50 pages. How many pages does he have left to read?", options: ["17", "16", "18", "19"], correct: "17", icon: "\uD83D\uDCD6" , grade: 4 },
+  { q: "A classroom has 6 tables with 4 chairs at each table. 3 chairs are broken and removed. How many chairs are left?", options: ["21", "20", "22", "18"], correct: "21", icon: "\uD83E\uDE91" , grade: 4 },
+  { q: "Emma buys 5 bags of apples with 8 apples in each bag. She uses 12 apples to bake a pie. How many apples does she have left?", options: ["28", "27", "29", "30"], correct: "28", icon: "\uD83C\uDF4E" , grade: 4 },
+  { q: "A toy store has 9 boxes of cars with 7 cars in each box. They sell 25 cars. How many cars are left?", options: ["38", "37", "39", "35"], correct: "38", icon: "\uD83D\uDE97" , grade: 4 },
+  { q: "There are 96 crayons to share equally among 8 students. Then each student gives away 3 crayons. How many crayons does each student have left?", options: ["9", "8", "10", "7"], correct: "9", icon: "\uD83D\uDD8D\uFE0F" , grade: 4 },
+  { q: "A garden has 5 rows of 9 tomato plants. After a storm, 14 plants are damaged and removed. How many healthy plants remain?", options: ["31", "30", "32", "29"], correct: "31", icon: "\uD83C\uDF45" , grade: 4 },
+  { q: "Noah saved $8 each week for 6 weeks. Then he spent $19 on a video game. How much money does he have left?", options: ["$29", "$28", "$30", "$27"], correct: "$29", icon: "\uD83C\uDFAE" , grade: 4 },
+  { q: "A school orders 12 boxes of pencils with 10 pencils in each box. They give away 45 pencils. How many pencils are left?", options: ["75", "74", "76", "70"], correct: "75", icon: "\u270F\uFE0F" , grade: 4 },
+  { q: "Ava has 3 shelves with 15 books on each shelf. She donates 22 books. How many books does she have left?", options: ["23", "22", "24", "20"], correct: "23", icon: "\uD83D\uDCD5" , grade: 4 },
+  { q: "A pet store has 4 tanks with 11 fish in each tank. They add 9 more fish. How many fish are there now?", options: ["53", "52", "54", "50"], correct: "53", icon: "\uD83D\uDC20" , grade: 4 },
+  { q: "Sam has 3 bags of marbles with 5 marbles in each bag. How many marbles does he have?", options: ["15", "8", "20", "12"], correct: "15", icon: "\uD83D\uDD35", grade: 3 },
+  { q: "There are 24 students in a class. They are split into 4 equal teams. How many students are on each team?", options: ["6", "8", "4", "12"], correct: "6", icon: "\uD83E\uDD1D", grade: 3 },
+  { q: "Ben had 18 toy cars. He gave 5 to his brother. How many does he have left?", options: ["13", "12", "14", "23"], correct: "13", icon: "\uD83D\uDE97", grade: 3 },
+  { q: "A box has 7 red pencils and 8 blue pencils. How many pencils are in the box?", options: ["15", "14", "16", "1"], correct: "15", icon: "\u270F\uFE0F", grade: 3 },
+  { q: "Lily picked 6 apples on Monday and 9 apples on Tuesday. How many apples did she pick in total?", options: ["15", "14", "16", "3"], correct: "15", icon: "\uD83C\uDF4E", grade: 3 },
+  { q: "A pizza is cut into 8 slices. 3 friends each eat 2 slices. How many slices are left?", options: ["2", "3", "1", "4"], correct: "2", icon: "\uD83C\uDF55", grade: 3 },
+  { q: "A school orders 15 boxes of markers with 24 markers in each box. They give 120 markers to one grade and 95 to another. How many markers are left?", options: ["145", "140", "150", "135"], correct: "145", icon: "\uD83D\uDD8D\uFE0F", grade: 5 },
+  { q: "Maria earns $12 per hour. She works 6 hours on Saturday and 4 hours on Sunday. She spends $45 on a new game. How much money does she have left?", options: ["$75", "$70", "$80", "$65"], correct: "$75", icon: "\uD83C\uDFAE", grade: 5 },
+  { q: "A theater has 18 rows with 22 seats in each row. If 287 seats are already filled, how many empty seats are left?", options: ["109", "108", "110", "113"], correct: "109", icon: "\uD83C\uDFAD", grade: 5 },
+  { q: "A factory makes 145 toys each day. After 6 days, 372 toys are shipped out. How many toys are left in the warehouse?", options: ["498", "497", "499", "500"], correct: "498", icon: "\uD83E\uDDF8", grade: 5 },
+  { q: "A charity collects $18 from each of 24 students, plus an extra $156 donation. How much money did they raise in total?", options: ["$588", "$580", "$590", "$576"], correct: "$588", icon: "\uD83C\uDF97\uFE0F", grade: 5 },
+  { q: "A bakery bakes 14 trays of cookies with 18 cookies on each tray. They donate 75 cookies and sell the rest. How many cookies do they sell?", options: ["177", "176", "178", "180"], correct: "177", icon: "\uD83C\uDF6A", grade: 5 },
+];
+
+const POS_BANK = [
+  { q: "In the sentence 'The dog ran fast,' what part of speech is 'dog'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Noun", icon: "🐕" },
+  { q: "In the sentence 'The dog ran fast,' what part of speech is 'ran'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Verb", icon: "🏃" },
+  { q: "In the sentence 'The dog ran fast,' what part of speech is 'fast'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Adverb", icon: "💨" },
+  { q: "In the sentence 'She wore a beautiful dress,' what part of speech is 'beautiful'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Adjective", icon: "👗" },
+  { q: "In the sentence 'The cat sleeps all day,' what part of speech is 'sleeps'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Verb", icon: "😴" },
+  { q: "In the sentence 'My brother is very tall,' what part of speech is 'tall'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Adjective", icon: "🧍" },
+  { q: "In the sentence 'Birds fly south in winter,' what part of speech is 'Birds'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Noun", icon: "🐦" },
+  { q: "In the sentence 'He quickly finished his homework,' what part of speech is 'quickly'?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Adverb", icon: "⚡" },
+  { q: "Which word in this sentence is a noun: 'The happy children played outside'?", options: ["children", "happy", "played", "outside"], correct: "children", icon: "🌳" },
+  { q: "Which word in this sentence is a verb: 'The teacher wrote on the board'?", options: ["wrote", "teacher", "board", "the"], correct: "wrote", icon: "🏫" },
+  { q: "Which word in this sentence is an adjective: 'We saw a giant elephant at the zoo'?", options: ["giant", "saw", "zoo", "we"], correct: "giant", icon: "🐘" },
+  { q: "Which word in this sentence is an adverb: 'The turtle moved slowly across the yard'?", options: ["slowly", "turtle", "moved", "yard"], correct: "slowly", icon: "🐢" },
+  { q: "What do we call a word that names a person, place, or thing?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Noun" },
+  { q: "What do we call a word that shows an action?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Verb" },
+  { q: "What do we call a word that describes a noun?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Adjective" },
+  { q: "What do we call a word that describes a verb, often telling how, when, or where?", options: ["Noun", "Verb", "Adjective", "Adverb"], correct: "Adverb" },
+  { q: "Which word is a proper noun?", options: ["Texas", "city", "river", "school"], correct: "Texas", icon: "🗺️" },
+  { q: "Which word is a pronoun in this sentence: 'She gave him the ball'?", options: ["She", "ball", "gave", "the"], correct: "She", icon: "🎾" },
+  { q: "Which word is a preposition in this sentence: 'The cat sat under the table'?", options: ["under", "cat", "sat", "table"], correct: "under", icon: "🐱" , grade: 4 },
+  { q: "Which word is a conjunction in this sentence: 'I wanted to play, but it was raining'?", options: ["but", "wanted", "play", "raining"], correct: "but", icon: "🌧️" , grade: 4 },
+  { q: "Which word shows possession in this sentence: 'Sarah's bike is red'?", options: ["Sarah's", "bike", "is", "red"], correct: "Sarah's", icon: "🚲" , grade: 4 },
+  { q: "What do we call a word like 'in,' 'on,' or 'under' that shows location or position?", options: ["Preposition", "Conjunction", "Pronoun", "Interjection"], correct: "Preposition" , grade: 4 },
+  { q: "What do we call a word like 'and,' 'but,' or 'or' that joins words or ideas together?", options: ["Conjunction", "Preposition", "Pronoun", "Adverb"], correct: "Conjunction" , grade: 4 },
+  { q: "Which sentence uses a possessive noun correctly?", options: ["The dog's leash is blue.", "The dogs leash is blue.", "The dog's' leash is blue.", "The dogs' leash is blue's."], correct: "The dog's leash is blue.", icon: "🐕" , grade: 4 },
+  { q: "Which word is the helping verb in this sentence: 'She has finished her homework'?", options: ["has", "finished", "her", "homework"], correct: "has", icon: "📝" , grade: 4 },
+  { q: "Which word correctly completes this sentence: 'My dog is ___ than yours.'?", options: ["bigger", "biggest", "big", "more big"], correct: "bigger", icon: "🐕" , grade: 4 },
+  { q: "Which word is the relative pronoun in this sentence: 'The book that I borrowed was fascinating'?", options: ["that", "book", "borrowed", "fascinating"], correct: "that", icon: "📚", grade: 5 },
+  { q: "Which word is the direct object in this sentence: 'Maria threw the ball'?", options: ["ball", "Maria", "threw", "the"], correct: "ball", icon: "⚾", grade: 5 },
+  { q: "Which sentence shows correct subject-verb agreement?", options: ["The children are playing outside.", "The children is playing outside.", "The children was playing outside.", "The children am playing outside."], correct: "The children are playing outside.", icon: "🧒", grade: 5 },
+  { q: "Which word is the indirect object in this sentence: 'She gave her brother a gift'?", options: ["brother", "gift", "gave", "She"], correct: "brother", icon: "🎁", grade: 5 },
+  { q: "Which sentence correctly uses the irregular plural form?", options: ["The mice ran across the floor.", "The mouses ran across the floor.", "The mices ran across the floor.", "The mouse's ran across the floor."], correct: "The mice ran across the floor.", icon: "🐭", grade: 5 },
+  { q: "Which word is an interjection in this sentence: 'Wow, that roller coaster was amazing!'?", options: ["Wow", "roller coaster", "amazing", "that"], correct: "Wow", icon: "🎢", grade: 5 },
+];
+
+const SYNANT_BANK = [
+  { q: "Which word means the same as 'happy'?", options: ["Joyful", "Sad", "Angry", "Tired"], correct: "Joyful", icon: "😊" },
+  { q: "Which word is the opposite of 'big'?", options: ["Small", "Huge", "Tall", "Wide"], correct: "Small", icon: "🐘" },
+  { q: "Which word means the same as 'fast'?", options: ["Quick", "Slow", "Lazy", "Heavy"], correct: "Quick", icon: "🏎️" },
+  { q: "Which word is the opposite of 'hot'?", options: ["Cold", "Warm", "Sunny", "Bright"], correct: "Cold", icon: "🔥" },
+  { q: "Which word means the same as 'begin'?", options: ["Start", "End", "Finish", "Stop"], correct: "Start", icon: "🏁" },
+  { q: "Which word is the opposite of 'loud'?", options: ["Quiet", "Noisy", "Booming", "Strong"], correct: "Quiet", icon: "📢" },
+  { q: "Which word means the same as 'tiny'?", options: ["Small", "Giant", "Wide", "Tall"], correct: "Small", icon: "🐜" },
+  { q: "Which word is the opposite of 'happy'?", options: ["Sad", "Glad", "Cheerful", "Excited"], correct: "Sad", icon: "😊" },
+  { q: "Which word means the same as 'smart'?", options: ["Clever", "Silly", "Slow", "Confused"], correct: "Clever", icon: "🧠" },
+  { q: "Which word is the opposite of 'old'?", options: ["New", "Ancient", "Aged", "Worn"], correct: "New", icon: "🕰️" },
+  { q: "Which word means the same as 'scared'?", options: ["Afraid", "Brave", "Calm", "Bold"], correct: "Afraid", icon: "😱" },
+  { q: "Which word is the opposite of 'easy'?", options: ["Difficult", "Simple", "Quick", "Plain"], correct: "Difficult", icon: "🪶" },
+  { q: "Which word means the same as 'help'?", options: ["Assist", "Hurt", "Ignore", "Stop"], correct: "Assist", icon: "🤝" },
+  { q: "Which word is the opposite of 'open'?", options: ["Closed", "Wide", "Unlocked", "Free"], correct: "Closed", icon: "🚪" },
+  { q: "Which word means the same as 'angry'?", options: ["Furious", "Pleased", "Calm", "Bored"], correct: "Furious", icon: "😠" },
+  { q: "Which word is the opposite of 'first'?", options: ["Last", "Second", "Early", "Next"], correct: "Last", icon: "🥇" },
+  { q: "Which word means the same as 'huge'?", options: ["Enormous", "Tiny", "Average", "Short"], correct: "Enormous", icon: "🐋" },
+  { q: "Which word is the opposite of 'wet'?", options: ["Dry", "Damp", "Soggy", "Moist"], correct: "Dry", icon: "💧" },
+  { q: "Which word means the same as 'valuable'?", options: ["Precious", "Worthless", "Common", "Plain"], correct: "Precious", icon: "💎" , grade: 4 },
+  { q: "Which word is the opposite of 'cautious'?", options: ["Reckless", "Careful", "Wary", "Alert"], correct: "Reckless", icon: "⚠️" , grade: 4 },
+  { q: "Which word means the same as 'transparent'?", options: ["Clear", "Solid", "Colorful", "Dark"], correct: "Clear", icon: "🪟" , grade: 4 },
+  { q: "Which word is the opposite of 'abundant'?", options: ["Scarce", "Plentiful", "Overflowing", "Generous"], correct: "Scarce", icon: "🌾" , grade: 4 },
+  { q: "Which word means the same as 'reluctant'?", options: ["Hesitant", "Eager", "Excited", "Willing"], correct: "Hesitant", icon: "🤔" , grade: 4 },
+  { q: "Which word is the opposite of 'diligent'?", options: ["Lazy", "Hardworking", "Careful", "Focused"], correct: "Lazy", icon: "📚" , grade: 4 },
+  { q: "Which word means the same as 'fragile'?", options: ["Delicate", "Strong", "Tough", "Sturdy"], correct: "Delicate", icon: "🥚" , grade: 4 },
+  { q: "Which word is the opposite of 'generous'?", options: ["Stingy", "Kind", "Giving", "Caring"], correct: "Stingy", icon: "🎁" , grade: 4 },
+  { q: "Which word means the same as 'meticulous'?", options: ["Careful", "Careless", "Lazy", "Fast"], correct: "Careful", icon: "🔍", grade: 5 },
+  { q: "Which word is the opposite of 'candid'?", options: ["Deceptive", "Honest", "Direct", "Open"], correct: "Deceptive", icon: "🎭", grade: 5 },
+  { q: "Which word means the same as 'tedious'?", options: ["Boring", "Exciting", "Quick", "Easy"], correct: "Boring", icon: "😴", grade: 5 },
+  { q: "Which word is the opposite of 'benevolent'?", options: ["Cruel", "Kind", "Generous", "Gentle"], correct: "Cruel", icon: "👑", grade: 5 },
+  { q: "Which word means the same as 'persistent'?", options: ["Determined", "Lazy", "Forgetful", "Careless"], correct: "Determined", icon: "💪", grade: 5 },
+  { q: "Which word is the opposite of 'authentic'?", options: ["Fake", "Real", "Genuine", "True"], correct: "Fake", icon: "🎨", grade: 5 },
+];
+
+const SENTENCES_BANK = [
+  { q: "Which punctuation mark ends this sentence: 'What is your favorite color'?", options: ["?", ".", "!", ","], correct: "?", icon: "🎨" },
+  { q: "Which punctuation mark ends this sentence: 'Watch out for that car'?", options: ["!", ".", "?", ","], correct: "!", icon: "🚗" },
+  { q: "Which punctuation mark ends this sentence: 'My dog likes to play in the park'?", options: [".", "!", "?", ","], correct: ".", icon: "🐶" },
+  { q: "What type of sentence is this: 'Please close the door.'?", options: ["Command", "Question", "Exclamation", "Statement"], correct: "Command", icon: "🚪" },
+  { q: "What type of sentence is this: 'Wow, that was an amazing trick!'?", options: ["Exclamation", "Statement", "Question", "Command"], correct: "Exclamation", icon: "🎩" },
+  { q: "What type of sentence is this: 'Where did you put my shoes?'?", options: ["Question", "Statement", "Command", "Exclamation"], correct: "Question", icon: "👟" },
+  { q: "What type of sentence is this: 'The sun rises in the east.'?", options: ["Statement", "Question", "Command", "Exclamation"], correct: "Statement", icon: "🌅" },
+  { q: "Which sentence uses commas correctly?", options: ["I packed apples, bananas, and grapes.", "I packed, apples bananas and grapes.", "I packed apples bananas, and grapes.", "I packed apples, bananas and, grapes."], correct: "I packed apples, bananas, and grapes.", icon: "🍇" },
+  { q: "Which word needs a capital letter: 'We went to texas for vacation.'?", options: ["texas", "went", "vacation", "we"], correct: "texas", icon: "🧳" },
+  { q: "Which sentence is written correctly?", options: ["She is my best friend.", "she is my best friend", "She is my best Friend", "she Is my best friend."], correct: "She is my best friend.", icon: "👭" },
+  { q: "What is the correct way to end a sentence that asks something?", options: ["Question mark (?)", "Period (.)", "Exclamation point (!)", "Comma (,)"], correct: "Question mark (?)" },
+  { q: "Which sentence is a command?", options: ["Clean your room.", "Is your room clean?", "Your room is clean.", "Your room is so clean!"], correct: "Clean your room.", icon: "🧹" },
+  { q: "Which sentence shows strong feeling?", options: ["I can't believe we won!", "I believe we won.", "Did we win?", "We won the game."], correct: "I can't believe we won!", icon: "🏆" },
+  { q: "What is the mistake in: 'my favorite season is summer'?", options: ["It needs a capital letter at the start.", "It needs a question mark.", "It needs an exclamation point.", "It has no mistakes."], correct: "It needs a capital letter at the start.", icon: "☀️" },
+  { q: "Which sentence uses an apostrophe correctly to show one dog owns the bone?", options: ["The dog's bone is buried.", "The dogs' bone is buried.", "The dog's' bone is buried.", "The dogs bone' is buried."], correct: "The dog's bone is buried.", icon: "🦴" },
+  { q: "Which is a complete sentence?", options: ["The little brown dog barked loudly.", "Barked loudly at the mailman.", "The little brown dog.", "Loudly at the mailman."], correct: "The little brown dog barked loudly.", icon: "📝" },
+  { q: "Which conjunction correctly joins these two sentences: 'I wanted to go outside. It started raining.'?", options: ["but", "and", "because", "or"], correct: "but", icon: "🌧️" , grade: 4 },
+  { q: "Which sentence correctly uses quotation marks for dialogue?", options: ['Sam said, "I am ready to go."', "Sam said, I am ready to go.", '"Sam said, I am ready to go.', 'Sam said "I am ready to go.'], correct: 'Sam said, "I am ready to go."', icon: "🗣️" , grade: 4 },
+  { q: "Which sentence is a run-on sentence that should be split into two?", options: ["I went to the store I bought milk.", "I went to the store. I bought milk.", "I went to the store, and I bought milk.", "I went to the store to buy milk."], correct: "I went to the store I bought milk.", icon: "🛒" , grade: 4 },
+  { q: "Which conjunction best joins these ideas: 'We can go to the park, ___ we can stay home and watch a movie.'?", options: ["or", "and", "but", "so"], correct: "or", icon: "🌳" , grade: 4 },
+  { q: "Which sentence uses a comma correctly before a conjunction in a compound sentence?", options: ["I like pizza, and I like tacos.", "I like pizza and, I like tacos.", "I like pizza, and I, like tacos.", "I like pizza and I like tacos,."], correct: "I like pizza, and I like tacos.", icon: "🍕" , grade: 4 },
+  { q: "What punctuation is missing here: 'My favorite foods are pizza, ice cream and tacos'?", options: [", before 'and'", "! at the end", "? at the end", "Nothing is missing"], correct: ", before 'and'", icon: "🍦" , grade: 4 },
+  { q: "Which sentence correctly uses a semicolon to join two related ideas?", options: ["I love to read; my sister loves to draw.", "I love to read, my sister loves to draw.", "I love to read; My sister loves to draw.", "I love to read: my sister loves to draw."], correct: "I love to read; my sister loves to draw.", icon: "📖", grade: 5 },
+  { q: "Which sentence correctly uses a comma after an introductory phrase?", options: ["After the game, we went out for ice cream.", "After the game we went out, for ice cream.", "After, the game we went out for ice cream.", "After the game we went out for ice cream,."], correct: "After the game, we went out for ice cream.", icon: "🍦", grade: 5 },
+  { q: "Which part of this sentence is the dependent clause: 'Because it was raining, we stayed inside.'?", options: ["Because it was raining", "we stayed inside", "it was raining inside", "stayed inside raining"], correct: "Because it was raining", icon: "🌧️", grade: 5 },
+  { q: "Which sentence is written in the passive voice?", options: ["The cake was eaten by the dog.", "The dog ate the cake.", "The dog is eating the cake.", "The dog will eat the cake."], correct: "The cake was eaten by the dog.", icon: "🐕", grade: 5 },
+  { q: "Which sentence correctly combines these two using a subordinating conjunction: 'I finished my homework. I went outside to play.'?", options: ["After I finished my homework, I went outside to play.", "I finished my homework, I went outside to play.", "I finished my homework so went outside to play.", "I finished my homework went outside to play."], correct: "After I finished my homework, I went outside to play.", icon: "📝", grade: 5 },
+  { q: "Which sentence uses an apostrophe correctly to show plural possession?", options: ["The students' books were on the desk.", "The student's books were on the desk.", "The students books' were on the desk.", "The students books were on the desk."], correct: "The students' books were on the desk.", icon: "📚", grade: 5 },
+];
+
+const VOCAB_BANK = [
+  { q: "The weather was frigid, so we wore heavy coats. What does 'frigid' mean?", options: ["Very cold", "Very hot", "Sunny", "Windy"], correct: "Very cold", icon: "🧥" },
+  { q: "The huge dog was enormous compared to the tiny kitten. What does 'enormous' mean?", options: ["Very large", "Very small", "Fast", "Quiet"], correct: "Very large", icon: "🐕" },
+  { q: "She was exhausted after running the long race. What does 'exhausted' mean?", options: ["Very tired", "Very happy", "Hungry", "Excited"], correct: "Very tired", icon: "🏃" },
+  { q: "The room was so dim that we could barely see. What does 'dim' mean?", options: ["Not bright; dark", "Very bright", "Colorful", "Warm"], correct: "Not bright; dark", icon: "🛋️" },
+  { q: "He was furious when his bike was stolen. What does 'furious' mean?", options: ["Extremely angry", "Very happy", "Confused", "Sleepy"], correct: "Extremely angry", icon: "🚲" },
+  { q: "If you 'unwrap' a gift, what are you doing?", options: ["Taking the wrapping off", "Putting wrapping on", "Throwing it away", "Hiding it"], correct: "Taking the wrapping off", icon: "🎁" },
+  { q: "The prefix 're-' usually means...", options: ["Again", "Not", "Before", "Under"], correct: "Again" },
+  { q: "The prefix 'un-' usually means...", options: ["Not", "Again", "More", "Over"], correct: "Not" },
+  { q: "The suffix '-ful' usually means...", options: ["Full of", "Without", "Before", "Small"], correct: "Full of" },
+  { q: "The suffix '-less' usually means...", options: ["Without", "Full of", "More", "Again"], correct: "Without" },
+  { q: "If something is 'colorless,' it means it has...", options: ["No color", "Lots of color", "One color", "Bright color"], correct: "No color" },
+  { q: "If you 'replay' a video, you...", options: ["Play it again", "Stop playing it", "Play it for the first time", "Erase it"], correct: "Play it again", icon: "📹" },
+  { q: "The detective was curious about the mystery, so she kept asking questions. What does 'curious' mean?", options: ["Wanting to know more", "Feeling scared", "Feeling bored", "Feeling tired"], correct: "Wanting to know more", icon: "🔍" },
+  { q: "The path was narrow, so only one person could walk at a time. What does 'narrow' mean?", options: ["Not wide", "Very wide", "Very long", "Bumpy"], correct: "Not wide", icon: "🚶" },
+  { q: "She whispered so quietly that no one else could hear. What does 'whispered' mean?", options: ["Spoke very softly", "Shouted loudly", "Sang a song", "Laughed loudly"], correct: "Spoke very softly", icon: "👂" },
+  { q: "The ancient castle was built hundreds of years ago. What does 'ancient' mean?", options: ["Very old", "Brand new", "Small", "Colorful"], correct: "Very old", icon: "🏰" },
+  { q: "The meticulous scientist double-checked every measurement before recording her results. What does 'meticulous' mean?", options: ["Very careful and precise", "Very careless", "Very fast", "Very loud"], correct: "Very careful and precise", icon: "🔬" , grade: 4 },
+  { q: "The crowd was ecstatic when the team scored the winning goal in the final second. What does 'ecstatic' mean?", options: ["Extremely happy and excited", "Very sad", "Very confused", "Very tired"], correct: "Extremely happy and excited", icon: "⚽" , grade: 4 },
+  { q: "Despite the heavy rain, the hikers were determined to reach the summit. What does 'determined' mean?", options: ["Having a strong will to keep trying", "Giving up easily", "Feeling scared", "Feeling sleepy"], correct: "Having a strong will to keep trying", icon: "⛰️" , grade: 4 },
+  { q: "The old bridge was so dilapidated that the city decided to close it for repairs. What does 'dilapidated' mean?", options: ["Falling apart or in poor condition", "Brand new", "Very colorful", "Very crowded"], correct: "Falling apart or in poor condition", icon: "🌉" , grade: 4 },
+  { q: "The teacher's explanation was so lucid that even the trickiest math problem made sense. What does 'lucid' mean?", options: ["Clear and easy to understand", "Confusing", "Boring", "Very long"], correct: "Clear and easy to understand", icon: "🍎" , grade: 4 },
+  { q: "The detective gathered substantial evidence before making an arrest. What does 'substantial' mean?", options: ["Large in amount or importance", "Very small", "Very old", "Very colorful"], correct: "Large in amount or importance", icon: "🕵️" , grade: 4 },
+  { q: "The benevolent king was loved by all his people because of his kindness and generosity. What does 'benevolent' mean?", options: ["Kind and generous", "Cruel and harsh", "Very wealthy", "Very old"], correct: "Kind and generous", icon: "👑", grade: 5 },
+  { q: "The hikers were exhausted but exhilarated after reaching the summit and seeing the breathtaking view. What does 'exhilarated' mean?", options: ["Excited and thrilled", "Very tired", "Very bored", "Very scared"], correct: "Excited and thrilled", icon: "⛰️", grade: 5 },
+  { q: "The witness gave a very candid account of what happened, holding nothing back. What does 'candid' mean?", options: ["Honest and direct", "Confusing and vague", "Very short", "Very rehearsed"], correct: "Honest and direct", icon: "🎤", grade: 5 },
+  { q: "The scientist's hypothesis was later corroborated by additional experiments. What does 'corroborated' mean?", options: ["Confirmed or supported", "Disproven", "Ignored", "Forgotten"], correct: "Confirmed or supported", icon: "🔬", grade: 5 },
+  { q: "The new policy was met with widespread skepticism from the employees. What does 'skepticism' mean?", options: ["Doubt or disbelief", "Excitement", "Agreement", "Confusion"], correct: "Doubt or disbelief", icon: "🏢", grade: 5 },
+  { q: "The chef meticulously plated each dish to make it look as exquisite as it tasted. What does 'exquisite' mean?", options: ["Extremely beautiful or delicate", "Very plain", "Very spicy", "Very cheap"], correct: "Extremely beautiful or delicate", icon: "🍽️", grade: 5 },
+];
+
+const COMPREHENSION_BANK = [
+  { passage: "Sea otters live in the ocean along the coast. They have very thick fur to keep them warm in the cold water. Sea otters often float on their backs and use rocks to crack open shellfish for food. Mother otters carry their babies on their stomachs while they swim.", q: "Where do sea otters live?", options: ["In the ocean along the coast", "In rivers", "In the desert", "In trees"], correct: "In the ocean along the coast", icon: "🦦" },
+  { passage: "Sea otters live in the ocean along the coast. They have very thick fur to keep them warm in the cold water. Sea otters often float on their backs and use rocks to crack open shellfish for food. Mother otters carry their babies on their stomachs while they swim.", q: "How do sea otters open shellfish?", options: ["They use rocks to crack them open", "They bite through the shell", "They throw them at other otters", "They wait for the shell to open"], correct: "They use rocks to crack them open", icon: "🦦" },
+  { passage: "Maria planted a small seed in her garden. Every day, she watered it and made sure it got plenty of sunlight. After two weeks, a tiny green sprout popped out of the soil. Maria was so excited that she ran to tell her family the good news.", q: "What did Maria do to help her seed grow?", options: ["She watered it and gave it sunlight", "She kept it in the dark", "She covered it with a blanket", "She moved it every day"], correct: "She watered it and gave it sunlight", icon: "🌱" },
+  { passage: "Maria planted a small seed in her garden. Every day, she watered it and made sure it got plenty of sunlight. After two weeks, a tiny green sprout popped out of the soil. Maria was so excited that she ran to tell her family the good news.", q: "How did Maria feel when the sprout appeared?", options: ["Excited", "Bored", "Worried", "Angry"], correct: "Excited", icon: "🌱" },
+  { passage: "The school is having a fall festival on Saturday. There will be a pumpkin patch, face painting, and a costume contest. Tickets cost three dollars, and all the money will go toward buying new books for the library.", q: "When is the fall festival?", options: ["Saturday", "Friday", "Monday", "Sunday"], correct: "Saturday", icon: "🎃" },
+  { passage: "The school is having a fall festival on Saturday. There will be a pumpkin patch, face painting, and a costume contest. Tickets cost three dollars, and all the money will go toward buying new books for the library.", q: "What will the ticket money be used for?", options: ["Buying new books for the library", "Paying the teachers", "Building a playground", "Buying pumpkins"], correct: "Buying new books for the library", icon: "🎃" },
+  { passage: "Bats are the only mammals that can truly fly. Most bats sleep during the day and hunt for food at night. Many bats eat insects, while others eat fruit. Bats use a special skill called echolocation to find their way in the dark.", q: "When do most bats hunt for food?", options: ["At night", "In the morning", "At noon", "Never"], correct: "At night", icon: "🦇" },
+  { passage: "Bats are the only mammals that can truly fly. Most bats sleep during the day and hunt for food at night. Many bats eat insects, while others eat fruit. Bats use a special skill called echolocation to find their way in the dark.", q: "What skill helps bats find their way in the dark?", options: ["Echolocation", "Flying fast", "Strong eyesight", "Bright fur"], correct: "Echolocation", icon: "🦇" },
+  { passage: "Jacob forgot his lunch at home, so his friend Sam offered to share his sandwich. Jacob was thankful and promised to share his snack with Sam the next day. From then on, the two friends always made sure to look out for each other.", q: "Why was Jacob thankful?", options: ["Sam shared his sandwich with him", "Sam gave him money", "Sam walked him home", "Sam did his homework"], correct: "Sam shared his sandwich with him", icon: "🥪" },
+  { passage: "Jacob forgot his lunch at home, so his friend Sam offered to share his sandwich. Jacob was thankful and promised to share his snack with Sam the next day. From then on, the two friends always made sure to look out for each other.", q: "What can you tell about Jacob and Sam's friendship?", options: ["They look out for each other", "They never speak to each other", "They are not friends", "They always argue"], correct: "They look out for each other", icon: "🥪" },
+  { passage: "Volcanoes are mountains that can erupt, sending hot melted rock called lava into the air. Some volcanoes erupt suddenly, while others give off smoke and ash for years before a big eruption. Scientists who study volcanoes are called volcanologists.", q: "What is the hot melted rock from a volcano called?", options: ["Lava", "Ash", "Smoke", "Steam"], correct: "Lava", icon: "🌋" },
+  { passage: "Volcanoes are mountains that can erupt, sending hot melted rock called lava into the air. Some volcanoes erupt suddenly, while others give off smoke and ash for years before a big eruption. Scientists who study volcanoes are called volcanologists.", q: "What do we call scientists who study volcanoes?", options: ["Volcanologists", "Geologists", "Astronomers", "Meteorologists"], correct: "Volcanologists", icon: "🌋" },
+  { passage: "Every winter, the small town of Maple Creek holds a Snow Festival. Volunteers spend weeks building an enormous ice sculpture in the town square. Visitors come from miles away to see the glowing lights, taste warm cocoa, and watch the talent show. Even though it takes a lot of work to set up, the townspeople say the festival brings everyone together and is worth every minute.", q: "What is the main idea of this passage?", options: ["The Snow Festival brings the town together every winter", "Maple Creek is a very cold town", "Ice sculptures are difficult to build", "Cocoa is the most popular festival food"], correct: "The Snow Festival brings the town together every winter", icon: "❄️" , grade: 4 },
+  { passage: "Every winter, the small town of Maple Creek holds a Snow Festival. Volunteers spend weeks building an enormous ice sculpture in the town square. Visitors come from miles away to see the glowing lights, taste warm cocoa, and watch the talent show. Even though it takes a lot of work to set up, the townspeople say the festival brings everyone together and is worth every minute.", q: "Why do the townspeople say the festival is worth the work?", options: ["Because it brings everyone together", "Because it makes money for the town", "Because it is required by law", "Because the mayor enjoys it"], correct: "Because it brings everyone together", icon: "❄️" , grade: 4 },
+  { passage: "Coral reefs are sometimes called the rainforests of the sea because they are home to so many different kinds of life. But when ocean water gets too warm, the coral can become stressed and lose its bright colors in a process called bleaching. Without help, bleached coral can die, and the fish and other animals that depend on it must search for a new home.", q: "What causes coral bleaching?", options: ["Ocean water that gets too warm", "Too many fish swimming nearby", "Not enough sunlight", "Too much rain"], correct: "Ocean water that gets too warm", icon: "🐠" , grade: 4 },
+  { passage: "Coral reefs are sometimes called the rainforests of the sea because they are home to so many different kinds of life. But when ocean water gets too warm, the coral can become stressed and lose its bright colors in a process called bleaching. Without help, bleached coral can die, and the fish and other animals that depend on it must search for a new home.", q: "What happens to fish when coral reefs die?", options: ["They must search for a new home", "They grow bigger", "They turn the same color as the coral", "Nothing changes for them"], correct: "They must search for a new home", icon: "🐠" , grade: 4 },
+  { passage: "Recycling helps protect our planet in many ways. When we recycle paper, plastic, and metal, we use less new material and create less trash in landfills. Recycling also saves energy because making products from recycled material often takes less power than starting from scratch. Every can, bottle, and newspaper that gets recycled makes a difference.", q: "What is the author's main purpose in writing this passage?", options: ["To explain why recycling is helpful and encourage it", "To describe how landfills are built", "To tell a story about a recycling truck", "To compare different types of trash"], correct: "To explain why recycling is helpful and encourage it", icon: "♻️", grade: 5 },
+  { passage: "Recycling helps protect our planet in many ways. When we recycle paper, plastic, and metal, we use less new material and create less trash in landfills. Recycling also saves energy because making products from recycled material often takes less power than starting from scratch. Every can, bottle, and newspaper that gets recycled makes a difference.", q: "Based on the passage, what can you conclude about making products from new materials versus recycled materials?", options: ["Using new materials usually takes more energy", "Using new materials is always cheaper", "Recycled materials cannot be reused", "There is no difference between the two"], correct: "Using new materials usually takes more energy", icon: "♻️", grade: 5 },
+  { passage: "Both the octopus and the squid are sea creatures with no bones, and both can squirt ink to escape from danger. However, an octopus has eight arms, while a squid has eight arms plus two longer tentacles. Octopuses usually crawl along the ocean floor, while squids are built for fast swimming in open water.", q: "How are octopuses and squids alike?", options: ["Both have no bones and can squirt ink", "Both have exactly eight arms", "Both live only on the ocean floor", "Both cannot swim"], correct: "Both have no bones and can squirt ink", icon: "🐙", grade: 5 },
+  { passage: "Both the octopus and the squid are sea creatures with no bones, and both can squirt ink to escape from danger. However, an octopus has eight arms, while a squid has eight arms plus two longer tentacles. Octopuses usually crawl along the ocean floor, while squids are built for fast swimming in open water.", q: "What is one difference between octopuses and squids mentioned in the passage?", options: ["Squids have two extra tentacles that octopuses don't have", "Octopuses can squirt ink but squids cannot", "Squids have no bones but octopuses do", "Octopuses are faster swimmers than squids"], correct: "Squids have two extra tentacles that octopuses don't have", icon: "🦑", grade: 5 },
+  { passage: "Jamal practiced his violin for an hour every single day after school, even when his friends invited him to play outside. At first, his music sounded shaky and uneven. But after several months, Jamal's teacher entered him into a city-wide competition, where he played a solo in front of hundreds of people.", q: "What can you conclude helped Jamal improve enough to play in the competition?", options: ["His daily practice over many months", "Natural talent without any practice", "Watching other people play violin", "Switching to a different instrument"], correct: "His daily practice over many months", icon: "🎻", grade: 5 },
+  { passage: "Jamal practiced his violin for an hour every single day after school, even when his friends invited him to play outside. At first, his music sounded shaky and uneven. But after several months, Jamal's teacher entered him into a city-wide competition, where he played a solo in front of hundreds of people.", q: "What can you infer about Jamal's dedication to violin?", options: ["He was very dedicated and disciplined", "He didn't really care about violin", "He only practiced when forced to", "He preferred playing outside instead"], correct: "He was very dedicated and disciplined", icon: "🎻", grade: 5 },
+];
+
+const SPELLING_BANK = [
+  { q: "Which word is spelled correctly?", options: ["Because", "Becuase", "Becuse", "Becouse"], correct: "Because" },
+  { q: "Which word is spelled correctly?", options: ["Friend", "Freind", "Frend", "Friynd"], correct: "Friend" },
+  { q: "Which word is spelled correctly?", options: ["Beautiful", "Beatiful", "Beutiful", "Beautifull"], correct: "Beautiful" },
+  { q: "Which word is spelled correctly?", options: ["Different", "Diffrent", "Differant", "Diferent"], correct: "Different" },
+  { q: "Which word is spelled correctly?", options: ["Tomorrow", "Tommorow", "Tomorow", "Tommorrow"], correct: "Tomorrow" },
+  { q: "What is the plural of 'box'?", options: ["Boxes", "Boxs", "Box's", "Boxies"], correct: "Boxes", icon: "📦" },
+  { q: "What is the plural of 'baby'?", options: ["Babies", "Babys", "Baby's", "Babes"], correct: "Babies", icon: "👶" },
+  { q: "What is the plural of 'cat'?", options: ["Cats", "Cates", "Cat's", "Catses"], correct: "Cats", icon: "🐱" },
+  { q: "Which two words make up the contraction 'don't'?", options: ["Do not", "Does not", "Did not", "Done not"], correct: "Do not" },
+  { q: "Which two words make up the contraction 'they're'?", options: ["They are", "Their are", "There are", "They were"], correct: "They are" },
+  { q: "What contraction means 'I am'?", options: ["I'm", "I's", "Im'", "I'am"], correct: "I'm" },
+  { q: "Which word is a compound word?", options: ["Sunflower", "Yellow", "Garden", "Plant"], correct: "Sunflower" },
+  { q: "Which two words combine to make 'football'?", options: ["Foot + ball", "Fast + ball", "Foot + bell", "Fort + ball"], correct: "Foot + ball", icon: "🏈" },
+  { q: "Which word is spelled correctly?", options: ["Believe", "Beleive", "Belive", "Beleve"], correct: "Believe" },
+  { q: "What is the plural of 'leaf'?", options: ["Leaves", "Leafs", "Leves", "Leafes"], correct: "Leaves", icon: "🍃" },
+  { q: "Which word is a compound word?", options: ["Backpack", "Running", "Happy", "Quickly"], correct: "Backpack" },
+  { q: "Which is the correct spelling of the silent-letter word meaning 'the opposite of day'?", options: ["Night", "Knight", "Nite", "Nighte"], correct: "Night", icon: "🌙" , grade: 4 },
+  { q: "Which word correctly doubles the consonant before adding '-ing' to 'run'?", options: ["Running", "Runing", "Runninng", "Runing"], correct: "Running", icon: "🏃" , grade: 4 },
+  { q: "Which word correctly doubles the consonant before adding '-ed' to 'stop'?", options: ["Stopped", "Stoped", "Stopeed", "Stoppped"], correct: "Stopped", icon: "🛑" , grade: 4 },
+  { q: "Which word is spelled correctly?", options: ["Climb", "Clime", "Climbe", "Clim"], correct: "Climb" , grade: 4 },
+  { q: "Which word correctly adds the suffix '-tion' to the word 'act'?", options: ["Action", "Acttion", "Actsion", "Acktion"], correct: "Action", icon: "🎭" , grade: 4 },
+  { q: "Which word has a silent letter?", options: ["Thumb", "Thank", "Think", "Thin"], correct: "Thumb" , grade: 4 },
+  { q: "Which word means 'to write' based on the root 'scrib/script'?", options: ["Describe", "Destroy", "Decide", "Deliver"], correct: "Describe", grade: 5 },
+  { q: "Which homophone correctly completes: 'I can ___ that you are right.'?", options: ["see", "sea", "Sea", "See's"], correct: "see", grade: 5 },
+  { q: "Which word correctly uses the suffix '-able' to mean 'able to be washed'?", options: ["Washable", "Washible", "Washeable", "Washabel"], correct: "Washable", icon: "🧺", grade: 5 },
+  { q: "Which word is spelled correctly?", options: ["Although", "Allthough", "Altho", "Alltho"], correct: "Although", grade: 5 },
+  { q: "Which word correctly adds '-ible' instead of '-able'?", options: ["Visible", "Visable", "Visuble", "Viseble"], correct: "Visible", icon: "👀", grade: 5 },
+  { q: "Which word uses the Greek root 'tele' meaning 'far'?", options: ["Telephone", "Telltale", "Terrible", "Terrific"], correct: "Telephone", grade: 5 },
+];
+
+/* ------------------------------ topics & badges ------------------------------ */
+
+const MATH_TOPICS = [
+  { id: "mult", subject: "math", name: "Multiplication", icon: "\u2716\uFE0F", color: "#FF6B5E", generate: genMultiplication },
+  { id: "div", subject: "math", name: "Division", icon: "\u2797", color: "#FF8A65", generate: genDivision },
+  { id: "addsub", subject: "math", name: "Add & Subtract", icon: "\u2795", color: "#FFB74D", generate: genAddSub },
+  { id: "placevalue", subject: "math", name: "Place Value", icon: "\uD83D\uDD22", color: "#FFA94D", bank: PLACE_VALUE_BANK },
+  { id: "fractions", subject: "math", name: "Fractions", icon: "\uD83E\uDD67", color: "#FF7043", bank: FRACTIONS_BANK },
+  { id: "time", subject: "math", name: "Telling Time", icon: "\uD83D\uDD50", color: "#FF8A65", bank: TIME_BANK },
+  { id: "money", subject: "math", name: "Money", icon: "\uD83D\uDCB0", color: "#FFA000", bank: MONEY_BANK },
+  { id: "measurement", subject: "math", name: "Measure & Shapes", icon: "\uD83D\uDCD0", color: "#FF7F50", bank: MEASUREMENT_BANK },
+  { id: "wordproblems", subject: "math", name: "Word Problems", icon: "\uD83E\uDDE9", color: "#F4511E", bank: WORD_PROBLEMS_BANK },
+];
+
+const READING_TOPICS = [
+  { id: "pos", subject: "reading", name: "Parts of Speech", icon: "\u270F\uFE0F", color: "#3DDC97", bank: POS_BANK },
+  { id: "synant", subject: "reading", name: "Synonyms & Antonyms", icon: "\uD83D\uDD01", color: "#2DD4BF", bank: SYNANT_BANK },
+  { id: "sentences", subject: "reading", name: "Sentences & Punctuation", icon: "\uD83D\uDCAC", color: "#34D399", bank: SENTENCES_BANK },
+  { id: "vocab", subject: "reading", name: "Vocabulary Clues", icon: "\uD83D\uDCA1", color: "#10B981", bank: VOCAB_BANK },
+  { id: "comprehension", subject: "reading", name: "Reading Comprehension", icon: "\uD83D\uDCD6", color: "#22C55E", bank: COMPREHENSION_BANK },
+  { id: "spelling", subject: "reading", name: "Spelling Patterns", icon: "\uD83D\uDD24", color: "#16A34A", bank: SPELLING_BANK },
+];
+
+const ALL_TOPICS = [...MATH_TOPICS, ...READING_TOPICS];
+const TOPICS_BY_ID = {};
+ALL_TOPICS.forEach((t) => { TOPICS_BY_ID[t.id] = t; });
+
+/* ------------------------- Learning Path (curriculum) ------------------------- */
+// A homeschool-style scope & sequence: each unit = one topic, ordered into a
+// week-by-week program with a 5-day cadence (watch -> practice -> practice ->
+// review -> unit test) and mastery gating between units.
+const UNIT_PASS_THRESHOLD = 0.75;
+const UNIT_TEST_SIZE = 12;
+const PRACTICE_DAYS_RECOMMENDED = 2; // practice sessions suggested before the unit test
+
+const MATH_CURRICULUM = [
+  { topicId: "placevalue" },
+  { topicId: "addsub" },
+  { topicId: "mult" },
+  { topicId: "div" },
+  { topicId: "fractions" },
+  { topicId: "money" },
+  { topicId: "time" },
+  { topicId: "measurement" },
+  { topicId: "wordproblems" },
+].map((u, i) => ({ ...u, week: i + 1 }));
+
+const READING_CURRICULUM = [
+  { topicId: "pos" },
+  { topicId: "sentences" },
+  { topicId: "synant" },
+  { topicId: "vocab" },
+  { topicId: "spelling" },
+  { topicId: "comprehension" },
+].map((u, i) => ({ ...u, week: i + 1 }));
+
+const CURRICULUM_BY_SUBJECT = { math: MATH_CURRICULUM, reading: READING_CURRICULUM };
+
+function getUnitProgress(topicId) {
+  return (state.progress.units && state.progress.units[topicId]) || { practiceCount: 0, testBest: 0, testTimesTaken: 0, passed: false };
+}
+
+function isUnitUnlocked(curriculum, index) {
+  if (index === 0) return true;
+  return getUnitProgress(curriculum[index - 1].topicId).passed;
+}
+
+function buildUnitTestSession(topic, grade) {
+  if (topic.generate) {
+    return Array.from({ length: UNIT_TEST_SIZE }, () => topic.generate(grade));
+  }
+  const atGrade = topic.bank.filter((item) => (item.grade || 3) === grade);
+  const below = topic.bank.filter((item) => (item.grade || 3) < grade);
+  const pool = atGrade.length >= UNIT_TEST_SIZE ? atGrade : [...atGrade, ...below];
+  const source = pool.length >= UNIT_TEST_SIZE ? pool : topic.bank;
+  const picked = shuffle(source).slice(0, UNIT_TEST_SIZE);
+  return picked.map((item) => ({ ...item, options: shuffle(item.options) }));
+}
+
+const BADGES = [
+  { id: "first-steps", name: "First Steps", desc: "Complete your first quest", icon: "\u2728", check: (p) => Object.keys(p.topics).length >= 1 },
+  { id: "math-whiz", name: "Math Whiz", desc: "Complete every Number Realm quest", icon: "\uD83C\uDFC6", check: (p) => MATH_TOPICS.every((t) => p.topics[t.id]) },
+  { id: "word-wizard", name: "Word Wizard", desc: "Complete every Word Realm quest", icon: "\uD83C\uDF96\uFE0F", check: (p) => READING_TOPICS.every((t) => p.topics[t.id]) },
+  { id: "perfect-round", name: "Perfect Round", desc: "Score 100% on any quest", icon: "\u2B50", check: (p) => Object.values(p.topics).some((t) => t.bestPercent >= 1) },
+  { id: "on-fire", name: "On Fire", desc: "Get 5 correct answers in a row", icon: "\uD83D\uDD25", check: (p) => p.bestStreak >= 5 },
+  { id: "bookworm", name: "Bookworm", desc: "Complete the Reading Comprehension quest", icon: "\uD83D\uDCDA", check: (p) => !!p.topics["comprehension"] },
+  { id: "star-collector", name: "Star Collector", desc: "Earn 100 stars", icon: "\uD83D\uDC8E", check: (p) => p.totalStars >= 100 },
+  { id: "star-champion", name: "Star Champion", desc: "Earn 250 stars", icon: "\uD83C\uDF1F", check: (p) => p.totalStars >= 250 },
+  { id: "star-legend", name: "Star Legend", desc: "Earn 500 stars", icon: "\uD83D\uDC51", check: (p) => p.totalStars >= 500 },
+];
+
+const AVATARS = ["\uD83E\uDDB8", "\uD83D\uDC09", "\uD83D\uDE80", "\uD83E\uDD84", "\uD83D\uDC2F", "\uD83E\uDD16", "\uD83E\uDD81", "\u26A1"];
+
+const buildSession = (topic, grade) => {
+  if (topic.generate) {
+    return Array.from({ length: QUESTIONS_PER_SESSION }, () => topic.generate(grade));
+  }
+  const pool = topic.bank.filter((item) => (item.grade || 3) === grade);
+  const source = pool.length >= QUESTIONS_PER_SESSION ? pool : topic.bank.filter((item) => (item.grade || 3) === 3);
+  const picked = shuffle(source).slice(0, QUESTIONS_PER_SESSION);
+  return picked.map((item) => ({ ...item, options: shuffle(item.options) }));
+};
+
+const NODE_X_PATTERN = [22, 78, 50, 78, 22, 50, 78, 22];
+const getNodePos = (i) => ({ xPct: NODE_X_PATTERN[i % NODE_X_PATTERN.length], y: 70 + i * 148 });
+
+const buildTrailPath = (points) => {
+  if (points.length === 0) return "";
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const midY = (prev.y + curr.y) / 2;
+    d += ` C ${prev.x} ${midY}, ${curr.x} ${midY}, ${curr.x} ${curr.y}`;
+  }
+  return d;
+};
+
+function clockSvg(hour, minute) {
+  const hourAngle = ((hour % 12) + minute / 60) * 30;
+  const minuteAngle = minute * 6;
+  const rad = (d) => (d * Math.PI) / 180;
+  let ticks = "";
+  for (let i = 0; i < 12; i++) {
+    const a = rad(i * 30);
+    const x1 = 60 + 50 * Math.sin(a), y1 = 60 - 50 * Math.cos(a);
+    const x2 = 60 + 43 * Math.sin(a), y2 = 60 - 43 * Math.cos(a);
+    ticks += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#2E2350" stroke-width="2"/>`;
+  }
+  const hx = 60 + 26 * Math.sin(rad(hourAngle)), hy = 60 - 26 * Math.cos(rad(hourAngle));
+  const mx = 60 + 40 * Math.sin(rad(minuteAngle)), my = 60 - 40 * Math.cos(rad(minuteAngle));
+  return `<svg viewBox="0 0 120 120" style="width:130px;height:130px;">
+    <circle cx="60" cy="60" r="56" fill="#FBF3DD" stroke="#2E2350" stroke-width="4"/>
+    ${ticks}
+    <line x1="60" y1="60" x2="${hx}" y2="${hy}" stroke="#2E2350" stroke-width="5" stroke-linecap="round"/>
+    <line x1="60" y1="60" x2="${mx}" y2="${my}" stroke="#FF6B5E" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="60" cy="60" r="4" fill="#2E2350"/>
+  </svg>`;
+}
+
+/* ------------------------- question visual helpers ------------------------- */
+/* All of these only ever read information already GIVEN in the question text
+   (or the generated operands), never the correct answer, so they support
+   context clues without spoiling the result. */
+
+function emojiVisualHtml(e, size) {
+  size = size || 48;
+  return `<div style="font-size:${size}px;text-align:center;">${e}</div>`;
+}
+
+function arrayVisualHtml(rows, cols) {
+  const maxDim = 190;
+  const cellSize = Math.max(10, Math.min(20, Math.floor(maxDim / Math.max(rows, cols))));
+  const w = cols * cellSize, h = rows * cellSize;
+  let rects = "";
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      rects += `<rect x="${c * cellSize + 1}" y="${r * cellSize + 1}" width="${cellSize - 2}" height="${cellSize - 2}" rx="2" fill="var(--coral)"/>`;
+    }
+  }
+  return `<div style="text-align:center;"><svg viewBox="0 0 ${w} ${h}" style="width:${w}px;height:${h}px;max-width:100%;">${rects}</svg></div>`;
+}
+
+function divideVisualHtml(dividend, divisor) {
+  let dots = "";
+  for (let i = 0; i < dividend; i++) {
+    dots += `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--coral);margin:1.5px;"></span>`;
+  }
+  let boxes = "";
+  for (let g = 0; g < divisor; g++) {
+    boxes += `<div style="width:24px;height:24px;border:2px dashed var(--green);border-radius:6px;"></div>`;
+  }
+  return `<div style="display:flex;flex-direction:column;gap:8px;align-items:center;">
+    <div style="display:flex;flex-wrap:wrap;max-width:200px;justify-content:center;">${dots}</div>
+    <div style="font-size:11px;opacity:.7;">split into ${divisor} equal groups</div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:220px;">${boxes}</div>
+  </div>`;
+}
+
+function baseTenBlockHtml(n) {
+  const hundreds = Math.floor(n / 100);
+  const tens = Math.floor((n % 100) / 10);
+  const ones = n % 10;
+  let flats = "";
+  for (let h = 0; h < hundreds; h++) {
+    flats += `<div style="width:32px;height:32px;background:var(--green);border-radius:3px;margin:1px;"></div>`;
+  }
+  let rods = "";
+  for (let t = 0; t < tens; t++) {
+    rods += `<div style="width:9px;height:42px;background:var(--gold);border-radius:2px;margin:1px;"></div>`;
+  }
+  let units = "";
+  for (let o = 0; o < ones; o++) {
+    units += `<div style="width:9px;height:9px;background:var(--coral);border-radius:2px;margin:1px;"></div>`;
+  }
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+    ${hundreds > 0 ? `<div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:140px;">${flats}</div>` : ""}
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:110px;">${rods}</div>
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;max-width:90px;">${units}</div>
+    <div style="font-size:11px;opacity:.7;">${n}</div>
+  </div>`;
+}
+
+function baseTen2VisualHtml(a, b, op) {
+  return `<div style="display:flex;align-items:center;justify-content:center;gap:14px;">
+    ${baseTenBlockHtml(a)}
+    <div class="display" style="font-size:22px;opacity:.8;">${op}</div>
+    ${baseTenBlockHtml(b)}
+  </div>`;
+}
+
+function placeValueVisualHtml(qText) {
+  let matches = [...qText.matchAll(/\d{1,3}(?:,\d{3})+/g)].map((m) => m[0]);
+  if (matches.length === 0) {
+    matches = [...qText.matchAll(/\b\d{2,4}\b/g)].map((m) => m[0]);
+  }
+  matches = [...new Set(matches)].slice(0, 2);
+  if (matches.length === 0) return "";
+
+  let maskPlace = null;
+  const m1 = qText.match(/what digit is in the (hundred[\s-]thousands|ten[\s-]thousands|thousands|hundreds|tens|ones) place/i);
+  if (m1) maskPlace = m1[1].toLowerCase().replace(/\s/, "-");
+  const m2 = qText.match(/how many (hundred[\s-]thousands|ten[\s-]thousands|thousands|hundreds|tens|ones) (?:are|is) in/i);
+  if (m2) maskPlace = m2[1].toLowerCase().replace(/\s/, "-");
+
+  const chartFor = (numStr) => {
+    const digits = numStr.replace(/,/g, "").split("");
+    const len = digits.length;
+    const labels = ["Hundred-Thousands", "Ten-Thousands", "Thousands", "Hundreds", "Tens", "Ones"].slice(6 - len);
+    let cols = "";
+    for (let i = 0; i < len; i++) {
+      const label = labels[i];
+      const masked = maskPlace && label.toLowerCase() === maskPlace;
+      cols += `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div style="font-size:9px;opacity:.7;">${label}</div>
+        <div style="width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;background:${masked ? "var(--gold)" : "var(--plum)"};color:${masked ? "var(--plum)" : "var(--cream)"};border:2px solid ${masked ? "var(--gold)" : "rgba(255,255,255,.15)"};">${masked ? "?" : digits[i]}</div>
+      </div>`;
+    }
+    return `<div style="display:flex;gap:6px;justify-content:center;">${cols}</div>`;
+  };
+  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:center;">${matches.map(chartFor).join("")}</div>`;
+}
+
+function fractionVisualHtml(qText) {
+  const found = [...qText.matchAll(/\b(\d{1,2})\/(\d{1,2})\b/g)];
+  const seen = new Set();
+  const fracs = [];
+  for (const m of found) {
+    const n = parseInt(m[1], 10), d = parseInt(m[2], 10);
+    if (d <= 0 || d > 12 || n < 0) continue;
+    const key = `${n}/${d}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fracs.push({ n, d });
+    if (fracs.length >= 2) break;
+  }
+  if (fracs.length === 0) return "";
+  const pie = ({ n, d }) => {
+    const r = 32, cx = 38, cy = 38;
+    let slices = "";
+    for (let i = 0; i < d; i++) {
+      const a0 = (i / d) * 2 * Math.PI - Math.PI / 2;
+      const a1 = ((i + 1) / d) * 2 * Math.PI - Math.PI / 2;
+      const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+      const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+      const filled = i < n;
+      slices += `<path d="M${cx},${cy} L${x0},${y0} A${r},${r} 0 0 1 ${x1},${y1} Z" fill="${filled ? "var(--coral)" : "var(--cream)"}" stroke="var(--plum)" stroke-width="1.5"/>`;
+    }
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <svg viewBox="0 0 76 76" style="width:76px;height:76px;">${slices}</svg>
+      <div style="font-size:12px;opacity:.8;">${n}/${d}</div>
+    </div>`;
+  };
+  return `<div style="display:flex;gap:16px;justify-content:center;">${fracs.map(pie).join("")}</div>`;
+}
+
+function moneyVisualHtml(qText) {
+  const dollarMatches = [...new Set([...qText.matchAll(/\$\d+(?:\.\d{1,2})?/g)].map((m) => m[0]))].slice(0, 3);
+  if (dollarMatches.length > 0) {
+    const chips = dollarMatches.map((amt) => `<div style="background:var(--gold);color:var(--plum);border-radius:999px;padding:8px 16px;font-weight:700;font-size:16px;box-shadow:0 3px 8px rgba(0,0,0,.25);">${amt}</div>`).join("");
+    return `<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">${chips}</div>`;
+  }
+  const coinIcons = [];
+  if (/quarter/i.test(qText)) coinIcons.push({ label: "Q", color: "#D9D9D9" });
+  if (/dime/i.test(qText)) coinIcons.push({ label: "D", color: "#C7C7C7" });
+  if (/nickel/i.test(qText)) coinIcons.push({ label: "N", color: "#E3E3E3" });
+  if (/penn(y|ies)/i.test(qText)) coinIcons.push({ label: "P", color: "#C77B41" });
+  if (coinIcons.length === 0) return "";
+  const circles = coinIcons.map((c) => `<div style="width:40px;height:40px;border-radius:50%;background:${c.color};display:flex;align-items:center;justify-content:center;font-weight:700;color:#2E2350;border:2px solid rgba(0,0,0,.15);">${c.label}</div>`).join("");
+  return `<div style="display:flex;gap:8px;justify-content:center;">${circles}</div>`;
+}
+
+function polygonVisualHtml(sides) {
+  const cx = 38, cy = 38, r = 30;
+  let pts = "";
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * 2 * Math.PI - Math.PI / 2;
+    pts += `${cx + r * Math.cos(a)},${cy + r * Math.sin(a)} `;
+  }
+  return `<div style="text-align:center;"><svg viewBox="0 0 76 76" style="width:76px;height:76px;"><polygon points="${pts.trim()}" fill="none" stroke="var(--green)" stroke-width="3" stroke-linejoin="round"/></svg></div>`;
+}
+
+function labeledRectVisualHtml(length, width, unit) {
+  const maxDim = 110;
+  const scale = maxDim / Math.max(length, width, 1);
+  const w = Math.max(length * scale, 28), h = Math.max(width * scale, 28);
+  const totalW = w + 50, totalH = h + 40;
+  return `<div style="text-align:center;"><svg viewBox="0 0 ${totalW} ${totalH}" style="width:${Math.min(totalW, 200)}px;height:${Math.min(totalH, 150)}px;">
+    <rect x="25" y="20" width="${w}" height="${h}" fill="none" stroke="var(--coral)" stroke-width="3"/>
+    <text x="${25 + w / 2}" y="14" text-anchor="middle" font-size="11" fill="var(--cream)">${length} ${unit}</text>
+    <text x="14" y="${20 + h / 2}" text-anchor="middle" font-size="11" fill="var(--cream)" transform="rotate(-90 14 ${20 + h / 2})">${width} ${unit}</text>
+  </svg></div>`;
+}
+
+function areaMultVisualHtml(a, b) {
+  const maxDim = 110;
+  const scale = maxDim / Math.max(a, b, 1);
+  const w = Math.max(a * scale, 30), h = Math.max(b * scale, 30);
+  const totalW = w + 40, totalH = h + 36;
+  return `<div style="text-align:center;"><svg viewBox="0 0 ${totalW} ${totalH}" style="width:${Math.min(totalW, 180)}px;height:${Math.min(totalH, 140)}px;">
+    <rect x="20" y="16" width="${w}" height="${h}" fill="none" stroke="var(--coral)" stroke-width="3"/>
+    <text x="${20 + w / 2}" y="12" text-anchor="middle" font-size="13" fill="var(--cream)">${a}</text>
+    <text x="10" y="${16 + h / 2}" text-anchor="middle" font-size="13" fill="var(--cream)" transform="rotate(-90 10 ${16 + h / 2})">${b}</text>
+  </svg></div>`;
+}
+
+function divideBigVisualHtml(dividend, divisor) {
+  return `<div style="display:flex;align-items:center;justify-content:center;gap:14px;">
+    ${baseTenBlockHtml(dividend)}
+    <div class="display" style="font-size:22px;opacity:.8;">\u00F7${divisor}</div>
+  </div>`;
+}
+
+function numCardsVisualHtml(a, b, op) {
+  const card = (n) => `<div style="background:var(--plum);border:2px solid rgba(255,255,255,.15);border-radius:12px;padding:10px 16px;font-size:20px;font-weight:700;color:var(--cream);">${n.toLocaleString()}</div>`;
+  return `<div style="display:flex;align-items:center;justify-content:center;gap:14px;">${card(a)}<div class="display" style="font-size:22px;opacity:.8;">${op}</div>${card(b)}</div>`;
+}
+
+function measurementVisualHtml(qText) {
+  const shapeMap = { triangle: 3, square: 4, rectangle: 4, pentagon: 5, hexagon: 6 };
+  const shapeMatch = Object.keys(shapeMap).find((s) => new RegExp(`\\b${s}\\b`, "i").test(qText));
+  if (shapeMatch && /how many sides/i.test(qText)) {
+    return polygonVisualHtml(shapeMap[shapeMatch]);
+  }
+  let m = qText.match(/length of (\d+(?:\.\d+)?)\s*(\w+)[^.]*width of (\d+(?:\.\d+)?)\s*(\w+)/i);
+  if (m) return labeledRectVisualHtml(parseFloat(m[1]), parseFloat(m[3]), m[2]);
+  m = qText.match(/square[^.]*(\d+(?:\.\d+)?)\s*(\w+)\s*long/i);
+  if (m) return labeledRectVisualHtml(parseFloat(m[1]), parseFloat(m[1]), m[2]);
+  m = qText.match(/rectangle is (\d+(?:\.\d+)?)\s*(\w+)\s*long and (\d+(?:\.\d+)?)\s*(\w+)\s*wide/i);
+  if (m) return labeledRectVisualHtml(parseFloat(m[1]), parseFloat(m[3]), m[2]);
+  if (/pencil/i.test(qText)) return emojiVisualHtml("\u270F\uFE0F");
+  if (/watermelon/i.test(qText)) return emojiVisualHtml("\uD83C\uDF49");
+  if (/bathtub|water/i.test(qText)) return emojiVisualHtml("\uD83D\uDED1");
+  if (/feather/i.test(qText)) return emojiVisualHtml("\uD83E\uDEB6");
+  return "";
+}
+
+function timeVisualHtml(q) {
+  if (q.clock) return clockSvg(q.clock.hour, q.clock.minute);
+  const m = q.q.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (m) return clockSvg(parseInt(m[1], 10), parseInt(m[2], 10));
+  return "";
+}
+
+function questionVisualHtml(q, topicId) {
+  if (q.visual) {
+    const v = q.visual;
+    if (v.type === "array") return arrayVisualHtml(v.rows, v.cols);
+    if (v.type === "divide") return divideVisualHtml(v.dividend, v.divisor);
+    if (v.type === "baseten2") return baseTen2VisualHtml(v.a, v.b, v.op);
+    if (v.type === "basetenMult") return `<div style="display:flex;align-items:center;justify-content:center;gap:14px;">${baseTenBlockHtml(v.n)}<div class="display" style="font-size:22px;opacity:.8;">\u00D7${v.times}</div></div>`;
+    if (v.type === "areaMult") return areaMultVisualHtml(v.a, v.b);
+    if (v.type === "divideBig") return divideBigVisualHtml(v.dividend, v.divisor);
+    if (v.type === "numCards") return numCardsVisualHtml(v.a, v.b, v.op);
+  }
+  if (q.icon) return emojiVisualHtml(q.icon);
+  if (topicId === "placevalue") return placeValueVisualHtml(q.q);
+  if (topicId === "fractions") return fractionVisualHtml(q.q);
+  if (topicId === "money") return moneyVisualHtml(q.q);
+  if (topicId === "measurement") return measurementVisualHtml(q.q);
+  if (topicId === "time") return timeVisualHtml(q);
+  return "";
+}
+
+function starRowHtml(filled, size) {
+  size = size || 16;
+  let s = "";
+  for (let i = 0; i < 3; i++) {
+    s += `<span style="font-size:${size}px;color:${i < filled ? "var(--gold)" : "rgba(255,255,255,.3)"};">${i < filled ? "\u2605" : "\u2606"}</span>`;
+  }
+  return `<div style="display:flex;gap:2px;">${s}</div>`;
+}
+
+
+/* --------------------------------- state --------------------------------- */
+
+let state = {
+  profile: null,
+  progress: { totalStars: 0, topics: {}, units: {}, badges: [], bestStreak: 0 },
+  grade: 3,
+  screen: "setup",
+  activeTopic: null,
+  unitTestMode: false,
+  fromLearningPath: false,
+  quizQuestions: [],
+  qIndex: 0,
+  selectedOption: null,
+  showFeedback: false,
+  sessionCorrect: 0,
+  streak: 0,
+  sessionStreakMax: 0,
+  lastResult: null,
+  setupAvatar: AVATARS[0],
+  setupName: "",
+  students: [],
+  adminPinInput: "",
+  adminError: "",
+  adminLoading: false,
+  adminData: null,
+};
+
+// Change this to whatever PIN you want to gate the admin dashboard with.
+// This is a light deterrent for curious kids, NOT real security — the anon
+// key itself (not this PIN) is what actually protects the data.
+const ADMIN_PIN = "4321";
+
+// --- multi-student roster (local device) ---
+function loadStudents() {
+  try { const v = localStorage.getItem("mrq-students"); return v ? JSON.parse(v) : []; } catch (e) { return []; }
+}
+function saveStudents(list) {
+  try { localStorage.setItem("mrq-students", JSON.stringify(list)); } catch (e) {}
+}
+function loadActiveStudentId() {
+  try { return localStorage.getItem("mrq-active-student-id"); } catch (e) { return null; }
+}
+function saveActiveStudentId(id) {
+  try { localStorage.setItem("mrq-active-student-id", id); } catch (e) {}
+}
+// --- per-student progress (namespaced by student id) ---
+function loadProgressForStudent(id) {
+  try { const v = localStorage.getItem(`mrq-progress-${id}`); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+function saveProgressForStudent(id, p) {
+  try { localStorage.setItem(`mrq-progress-${id}`, JSON.stringify(p)); } catch (e) {}
+}
+// One-time migration from the old single-profile (pre-multi-student) saves.
+function migrateLegacyProfileIfNeeded() {
+  const existing = loadStudents();
+  if (existing.length > 0) return existing;
+  let legacyProfile = null, legacyProgress = null, legacyGrade = 3;
+  try { const v = localStorage.getItem("mrq-profile"); legacyProfile = v ? JSON.parse(v) : null; } catch (e) {}
+  if (!legacyProfile) return existing;
+  try { const v = localStorage.getItem("mrq-progress"); legacyProgress = v ? JSON.parse(v) : null; } catch (e) {}
+  try { const v = localStorage.getItem("mrq-grade"); legacyGrade = v ? parseInt(v, 10) : 3; } catch (e) {}
+  const id = genUuid();
+  const student = { id, name: legacyProfile.name || "Explorer", avatar: legacyProfile.avatar || AVATARS[0], grade: legacyGrade };
+  const migrated = [student];
+  saveStudents(migrated);
+  saveProgressForStudent(id, legacyProgress || { totalStars: 0, topics: {}, units: {}, badges: [], bestStreak: 0 });
+  saveActiveStudentId(id);
+  cloudSync(() => upsertStudentCloud(student));
+  return migrated;
+}
+
+/* ------------------------------ game logic ------------------------------ */
+
+function createStudent() {
+  const name = state.setupName.trim() || "Explorer";
+  const id = genUuid();
+  const student = { id, name, avatar: state.setupAvatar, grade: 3 };
+  state.students = [...state.students, student];
+  saveStudents(state.students);
+  cloudSync(() => upsertStudentCloud(student));
+  switchToStudent(id);
+}
+
+function switchToStudent(id) {
+  const student = state.students.find((s) => s.id === id);
+  if (!student) return;
+  state.profile = student;
+  state.grade = student.grade || 3;
+  state.progress = loadProgressForStudent(id) || { totalStars: 0, topics: {}, units: {}, badges: [], bestStreak: 0 };
+  saveActiveStudentId(id);
+  state.setupName = "";
+  state.setupAvatar = AVATARS[0];
+  state.screen = "home";
+  render();
+}
+
+function startQuiz(topicId) {
+  const topic = TOPICS_BY_ID[topicId];
+  state.activeTopic = topic;
+  state.unitTestMode = false;
+  state.fromLearningPath = false;
+  state.quizQuestions = buildSession(topic, state.grade);
+  state.qIndex = 0;
+  state.selectedOption = null;
+  state.showFeedback = false;
+  state.sessionCorrect = 0;
+  state.streak = 0;
+  state.sessionStreakMax = 0;
+  state.screen = "quiz";
+  render();
+}
+
+// Same as startQuiz, but launched from the Learning Path so the completed
+// session counts toward that unit's recommended practice days.
+function startPractice(topicId) {
+  startQuiz(topicId);
+  state.fromLearningPath = true;
+}
+
+// A longer, higher-stakes cumulative test for one unit. Passing unlocks the
+// next unit in the sequence (mastery-based gating).
+function startUnitTest(topicId) {
+  const topic = TOPICS_BY_ID[topicId];
+  state.activeTopic = topic;
+  state.unitTestMode = true;
+  state.fromLearningPath = false;
+  state.quizQuestions = buildUnitTestSession(topic, state.grade);
+  state.qIndex = 0;
+  state.selectedOption = null;
+  state.showFeedback = false;
+  state.sessionCorrect = 0;
+  state.streak = 0;
+  state.sessionStreakMax = 0;
+  state.screen = "quiz";
+  render();
+}
+
+function selectOption(opt) {
+  if (state.showFeedback) return;
+  const q = state.quizQuestions[state.qIndex];
+  state.selectedOption = opt;
+  state.showFeedback = true;
+  if (opt === q.correct) {
+    state.sessionCorrect++;
+    state.streak++;
+    state.sessionStreakMax = Math.max(state.sessionStreakMax, state.streak);
+  } else {
+    state.streak = 0;
+  }
+  render();
+}
+
+function nextQuestion() {
+  if (state.qIndex + 1 < state.quizQuestions.length) {
+    state.qIndex++;
+    state.selectedOption = null;
+    state.showFeedback = false;
+    render();
+  } else {
+    finishQuiz();
+  }
+}
+
+function finishQuiz() {
+  const total = state.quizQuestions.length;
+  const percent = state.sessionCorrect / total;
+  const ratingStars = percent >= 0.8 ? 3 : percent >= 0.5 ? 2 : 1;
+  const streakBonus = state.sessionStreakMax >= 3 ? (state.sessionStreakMax - 2) * 5 : 0;
+  const starsEarned = state.sessionCorrect * 10 + streakBonus + (state.unitTestMode ? 20 : 0);
+
+  const prevTopic = state.progress.topics[state.activeTopic.id] || { timesPlayed: 0, bestPercent: 0 };
+  const nextTopics = {
+    ...state.progress.topics,
+    [state.activeTopic.id]: {
+      timesPlayed: prevTopic.timesPlayed + 1,
+      bestPercent: Math.max(prevTopic.bestPercent, percent),
+    },
+  };
+
+  let nextUnits = state.progress.units || {};
+  let unitJustPassed = false;
+  if (state.unitTestMode) {
+    const prevUnit = getUnitProgress(state.activeTopic.id);
+    const passedNow = percent >= UNIT_PASS_THRESHOLD;
+    unitJustPassed = passedNow && !prevUnit.passed;
+    nextUnits = {
+      ...nextUnits,
+      [state.activeTopic.id]: {
+        practiceCount: prevUnit.practiceCount,
+        testBest: Math.max(prevUnit.testBest, percent),
+        testTimesTaken: prevUnit.testTimesTaken + 1,
+        passed: prevUnit.passed || passedNow,
+      },
+    };
+  } else if (state.fromLearningPath) {
+    const prevUnit = getUnitProgress(state.activeTopic.id);
+    nextUnits = {
+      ...nextUnits,
+      [state.activeTopic.id]: { ...prevUnit, practiceCount: prevUnit.practiceCount + 1 },
+    };
+  }
+
+  const nextBase = {
+    totalStars: state.progress.totalStars + starsEarned,
+    topics: nextTopics,
+    units: nextUnits,
+    bestStreak: Math.max(state.progress.bestStreak, state.sessionStreakMax),
+    badges: state.progress.badges,
+  };
+  const newBadgeIds = BADGES.filter((b) => !state.progress.badges.includes(b.id) && b.check(nextBase)).map((b) => b.id);
+  state.progress = { ...nextBase, badges: [...state.progress.badges, ...newBadgeIds] };
+  saveProgressForStudent(state.profile.id, state.progress);
+  const syncStudentId = state.profile.id, syncTopicId = state.activeTopic.id, syncSubject = state.activeTopic.subject;
+  const syncSessionType = state.unitTestMode ? "unit_test" : "practice";
+  const syncPercent = state.sessionCorrect / total;
+  cloudSync(() => Promise.all([
+    upsertTopicProgressCloud(syncStudentId, syncTopicId, nextTopics[syncTopicId]),
+    state.unitTestMode || state.fromLearningPath ? upsertUnitProgressCloud(syncStudentId, syncTopicId, syncSubject, nextUnits[syncTopicId]) : Promise.resolve(),
+    logSessionCloud(syncStudentId, syncTopicId, syncSubject, syncSessionType, state.sessionCorrect, total, syncPercent),
+  ]));
+  state.lastResult = {
+    starsEarned, correct: state.sessionCorrect, total, ratingStars,
+    newBadges: BADGES.filter((b) => newBadgeIds.includes(b.id)),
+    isUnitTest: state.unitTestMode,
+    unitPassed: state.unitTestMode ? nextUnits[state.activeTopic.id].passed : null,
+    unitJustPassed,
+    fromLearningPath: state.fromLearningPath,
+  };
+  state.screen = "results";
+  render();
+}
+
+function resetProgress() {
+  if (!confirm("This will erase all stars, badges, and quest progress. Continue?")) return;
+  state.progress = { totalStars: 0, topics: {}, units: {}, badges: [], bestStreak: 0 };
+  saveProgressForStudent(state.profile.id, state.progress);
+  render();
+}
+
+/* ------------------------------ admin dashboard ------------------------------ */
+
+function checkAdminPin() {
+  if (state.adminPinInput === ADMIN_PIN) {
+    loadAdminDashboard();
+  } else {
+    state.adminError = "Incorrect PIN";
+    state.adminPinInput = "";
+    render();
+  }
+}
+
+async function loadAdminDashboard() {
+  state.screen = "admin-dashboard";
+  state.adminLoading = true;
+  state.adminData = null;
+  render();
+  try {
+    const [students, units, topics] = await Promise.all([
+      sbFetch("students?select=*&order=name.asc"),
+      sbFetch("unit_progress?select=*"),
+      sbFetch("topic_progress?select=*"),
+    ]);
+    state.adminData = { students: students || [], units: units || [], topics: topics || [] };
+  } catch (e) {
+    state.adminData = { error: e.message };
+  }
+  state.adminLoading = false;
+  render();
+}
+
+// Aggregates unit_progress ACROSS students, grouped by topic/unit, to surface
+// which curriculum units are broadly hard rather than just one kid's weak spot.
+function computeRecurringChallenges(units) {
+  const byTopic = {};
+  units.forEach((u) => {
+    if (!u.test_times_taken) return; // only consider units that have actually been tested
+    if (!byTopic[u.topic_id]) byTopic[u.topic_id] = { topicId: u.topic_id, subject: u.subject, attempted: 0, passed: 0, scoreSum: 0, needingRetries: 0 };
+    const t = byTopic[u.topic_id];
+    t.attempted += 1;
+    if (u.passed) t.passed += 1;
+    t.scoreSum += Number(u.test_best) || 0;
+    if (u.test_times_taken >= 2 && !u.passed) t.needingRetries += 1;
+  });
+  return Object.values(byTopic).map((t) => ({
+    ...t,
+    avgScore: t.scoreSum / t.attempted,
+    passRate: t.attempted > 0 ? t.passed / t.attempted : 0,
+  })).sort((a, b) => a.passRate - b.passRate || a.avgScore - b.avgScore);
+}
+
+const TOPIC_VIDEOS = {
+  mult: { title: "Math Antics - Multi-Digit Multiplication", channel: "Math Antics", url: "https://www.youtube.com/watch?v=NBeXTNWPEAU" },
+  div: { title: "Math Antics - Long Division", channel: "Math Antics", url: "https://www.youtube.com/watch?v=LGqBQrUYua4" },
+  addsub: { title: "Math Antics - Multi-Digit Addition", channel: "Math Antics", url: "https://www.youtube.com/watch?v=mAvuom42NyY" },
+  placevalue: { title: "Math Antics - Place Value", channel: "Math Antics", url: "https://www.youtube.com/watch?v=T5Qf0qSSJFI" },
+  fractions: { title: "What Are Fractions? - Math Antics", channel: "Math Antics", url: "https://www.youtube.com/watch?v=I1u3pM9g9o8" },
+  time: { title: "Analog Clocks for Kids | How To Tell Time", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=bZY8WNMRcQ8" },
+  money: { title: "Coins for Kids | Math Learning Video", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=SUYJHL2muN8" },
+  measurement: { title: "Math Antics - Perimeter", channel: "Math Antics", url: "https://www.youtube.com/watch?v=AAY1bsazcgM" },
+  wordproblems: { title: "Solving 2-step Word Problems (3rd Grade)", channel: "MightyOwl Math", url: "https://www.youtube.com/watch?v=6glibvaWomw" },
+  pos: { title: "Parts of Speech - Nouns, Verbs & Adjectives", channel: "Bowtie Guy and Wife", url: "https://www.youtube.com/watch?v=as4K6Cd0Hng" },
+  synant: { title: "Synonyms and Antonyms Explained", channel: "Bowtie Guy and Wife", url: "https://www.youtube.com/watch?v=1iHDo-I5kKM" },
+  sentences: { title: "Punctuation Explained (by Punctuation!)", channel: "Scratch Garden", url: "https://www.youtube.com/watch?v=LdCOswMeXFQ" },
+  vocab: { title: "Context Clues Explained", channel: "Education.com", url: "https://www.youtube.com/watch?v=CyK01USxdg0" },
+  comprehension: { title: "What Is a Main Idea?", channel: "Khan Academy", url: "https://www.youtube.com/watch?v=4swFGRhQoMI" },
+  spelling: { title: "The 1-1-1 Spelling Rule", channel: "Smile and Learn", url: "https://www.youtube.com/watch?v=Hh_y45f2d20" },
+};
+
+// Long-form "teach the whole concept" videos, shown on Day 1 of each unit
+// (distinct from TOPIC_VIDEOS above, which are short wrong-answer refresher clips).
+const MODULE_INTRO_VIDEOS = {
+  mult: { title: "Multiplication for Kids \u2013 Full Math Lesson", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=TKAhQ-9BQnw" },
+  div: { title: "Division for Kids \u2013 Full Math Lesson", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=ek1JJVYaXxU" },
+  addsub: { title: "Addition for Kids \u2013 Full Math Lesson", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=YSDdPEV8cs4" },
+  placevalue: { title: "Place Value Learning Video | Classroom Edition", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=SKwwRJFEhJg" },
+  fractions: { title: "Fractions for Kids \u2013 Full Lesson", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=5arM5wpCNUo" },
+  time: { title: "Analog Clocks for Kids | How To Tell Time", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=bZY8WNMRcQ8" },
+  money: { title: "Coins for Kids | Math Learning Video", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=SUYJHL2muN8" },
+  measurement: { title: "Area for Kids \u2013 Full Lesson Video", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=8cz_IB65pZM" },
+  wordproblems: { title: "Solving 2-step Word Problems", channel: "MightyOwl Math", url: "https://www.youtube.com/watch?v=6glibvaWomw" },
+  pos: { title: "Parts of Speech - Nouns Verbs & Adjectives", channel: "Bowtie Guy and Wife", url: "https://www.youtube.com/watch?v=as4K6Cd0Hng" },
+  synant: { title: "Synonyms and Antonyms", channel: "Bowtie Guy and Wife", url: "https://www.youtube.com/watch?v=1iHDo-I5kKM" },
+  sentences: { title: "Punctuation for Kids | All the Punctuation Marks", channel: "Educational Video", url: "https://www.youtube.com/watch?v=1U18PVgZJA8" },
+  vocab: { title: "Context Clues | Award Winning Teaching Video", channel: "Educational Video", url: "https://www.youtube.com/watch?v=CyK01USxdg0" },
+  comprehension: { title: "Improving Reading Comprehension Skills & Strategies", channel: "Bowtie Guy and Wife", url: "https://www.youtube.com/watch?v=E82FnJa2Vfo" },
+  spelling: { title: "Suffixes for Kids", channel: "Homeschool Pop", url: "https://www.youtube.com/watch?v=xfT9T9gW32c" },
+};
+
+const REPORT_EMAIL = "phong.nguyen39@gmail.com";
+const GRADE_LABELS = { 3: "3rd grade (Easy)", 4: "4th grade (Normal)", 5: "5th grade (Hard)" };
+
+function buildProgressReportText() {
+  const p = state.progress;
+  const name = state.profile ? state.profile.name : "Explorer";
+  const level = Math.floor(p.totalStars / 100) + 1;
+  const lines = [];
+  lines.push(`Learning Quest Progress Report for ${name}`);
+  lines.push("");
+  lines.push(`Level: ${level}  |  Total stars: ${p.totalStars}  |  Best streak: ${p.bestStreak}`);
+  lines.push(`Current difficulty: ${GRADE_LABELS[state.grade] || "3rd grade (Easy)"}`);
+  lines.push("");
+
+  const section = (title, topics) => {
+    const played = topics.filter((t) => p.topics[t.id]);
+    lines.push(`${title}:`);
+    if (played.length === 0) {
+      lines.push("  No lessons completed yet.");
+    } else {
+      played.forEach((t) => {
+        const s = p.topics[t.id];
+        lines.push(`  - ${t.name}: played ${s.timesPlayed}x, best score ${Math.round(s.bestPercent * 100)}%`);
+      });
+    }
+    lines.push("");
+  };
+
+  section("MATH", MATH_TOPICS);
+  section("READING & WRITING", READING_TOPICS);
+
+  if (p.badges.length > 0) {
+    const badgeNames = p.badges.map((id) => { const b = BADGES.find((x) => x.id === id); return b ? `${b.icon} ${b.name}` : id; });
+    lines.push(`Badges earned (${p.badges.length}): ${badgeNames.join(", ")}`);
+  } else {
+    lines.push("Badges earned: none yet.");
+  }
+  lines.push("");
+  lines.push(`Sent from Learning Quest on ${new Date().toLocaleDateString()}`);
+  return lines.join("\n");
+}
+
+function emailProgressReport() {
+  const name = state.profile ? state.profile.name : "Explorer";
+  const subject = `Learning Quest Progress Report - ${name}`;
+  const body = buildProgressReportText();
+  const url = `mailto:${REPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+}
+
+/* ------------------------------- rendering ------------------------------- */
+
+function topBarHtml(opts) {
+  opts = opts || {};
+  const level = Math.floor(state.progress.totalStars / 100) + 1;
+  return `
+  <div class="row between" style="margin-bottom:18px;">
+    <div class="row gap-2">
+      ${opts.showBack ? `<button data-action="${opts.backAction}" class="icon-btn" aria-label="Go back">\u2190</button>` : ""}
+      <button data-action="go-roster" style="border:none;background:none;padding:0;cursor:pointer;" aria-label="Switch explorer">
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--plum);display:flex;align-items:center;justify-content:center;font-size:20px;border:2px solid var(--gold);">${state.profile ? state.profile.avatar : "\uD83E\uDDB8"}</div>
+      </button>
+      <div>
+        <div class="display" style="font-size:14px;line-height:1.1;">${escapeHtml(state.profile ? state.profile.name : "")}</div>
+        <div style="font-size:11px;opacity:.7;">Level ${level} \u00b7 <span style="text-decoration:underline;cursor:pointer;" data-action="go-roster">Switch</span></div>
+      </div>
+    </div>
+    <div class="row gap-2" style="background:var(--plum);padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.1);">
+      <span style="color:var(--gold);">\u2605</span>
+      <span class="display" style="font-size:14px;">${state.progress.totalStars}</span>
+    </div>
+  </div>`;
+}
+
+function renderRoster() {
+  const cardsHtml = state.students.map((s) => `
+    <button data-action="switch-student" data-student="${s.id}" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 8px;border-radius:16px;border:2px solid ${state.profile && state.profile.id === s.id ? "var(--gold)" : "rgba(255,255,255,.15)"};background:${state.profile && state.profile.id === s.id ? "var(--plum)" : "rgba(255,255,255,.05)"};cursor:pointer;">
+      <div style="font-size:34px;">${s.avatar}</div>
+      <div class="display" style="font-size:13px;color:var(--cream);">${escapeHtml(s.name)}</div>
+      <div style="font-size:10px;opacity:.65;">Grade ${s.grade || 3}</div>
+    </button>
+  `).join("");
+  return `
+  <div style="padding-top:20px;text-align:center;">
+    <h1 class="display" style="font-size:24px;margin:0 0 6px;color:var(--gold);">Who's Playing?</h1>
+    <p style="opacity:.8;margin-bottom:22px;font-size:14px;">Pick your explorer, or add a new one.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+      ${cardsHtml}
+      <button data-action="go-new-student" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px 8px;border-radius:16px;border:2px dashed rgba(255,255,255,.3);background:none;cursor:pointer;color:var(--cream);">
+        <div style="font-size:28px;">\u2795</div>
+        <div style="font-size:11px;opacity:.85;">Add New</div>
+      </button>
+    </div>
+    <button data-action="go-admin-login" class="link-btn" style="color:rgba(255,255,255,.45);">\uD83D\uDD12 Admin Dashboard</button>
+  </div>`;
+}
+
+function renderSetup() {
+  const avatarsHtml = AVATARS.map((a) => `
+    <button data-action="pick-avatar" data-avatar="${a}" style="font-size:26px;padding:10px 0;border-radius:14px;cursor:pointer;border:${a === state.setupAvatar ? "3px solid var(--gold)" : "2px solid rgba(255,255,255,.15)"};background:${a === state.setupAvatar ? "var(--plum)" : "rgba(255,255,255,.05)"};">${a}</button>
+  `).join("");
+  const hasOthers = state.students && state.students.length > 0;
+  return `
+  <div style="padding-top:40px;text-align:center;">
+    ${hasOthers ? `<div style="text-align:left;margin-bottom:10px;"><button data-action="go-roster" class="icon-btn" aria-label="Back">\u2190</button></div>` : ""}
+    <div class="pop" style="font-size:56px;margin-bottom:8px;">${state.setupAvatar}</div>
+    <h1 class="display" style="font-size:28px;margin:0 0 6px;color:var(--gold);">${hasOthers ? "New Explorer!" : "Welcome, Explorer!"}</h1>
+    <p style="opacity:.8;margin-bottom:28px;font-size:15px;">Let's set up your adventure into the Learning Realms.</p>
+    <label style="display:block;text-align:left;font-size:13px;margin-bottom:6px;opacity:.85;">What's your name?</label>
+    <input id="name-input" type="text" maxlength="20" placeholder="Type your name" value="${escapeHtml(state.setupName)}" style="width:100%;padding:12px 14px;border-radius:14px;border:2px solid var(--plum);background:var(--cream);color:var(--plum);font-size:16px;margin-bottom:24px;font-family:'Nunito',sans-serif;">
+    <label style="display:block;text-align:left;font-size:13px;margin-bottom:10px;opacity:.85;">Pick your avatar</label>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:30px;">${avatarsHtml}</div>
+    <button data-action="start-adventure" class="btn-primary">Start Adventure</button>
+  </div>`;
+}
+
+function renderHome() {
+  const mathDone = MATH_TOPICS.filter((t) => state.progress.topics[t.id]).length;
+  const readingDone = READING_TOPICS.filter((t) => state.progress.topics[t.id]).length;
+  const level = Math.floor(state.progress.totalStars / 100) + 1;
+  const starsIntoLevel = state.progress.totalStars % 100;
+  const previewBadges = BADGES.slice(0, 6);
+  const badgesHtml = previewBadges.map((b) => {
+    const unlocked = state.progress.badges.includes(b.id);
+    return `<div style="min-width:56px;height:56px;border-radius:16px;flex-shrink:0;background:${unlocked ? "var(--plum)" : "rgba(255,255,255,.05)"};border:2px solid ${unlocked ? "var(--gold)" : "rgba(255,255,255,.1)"};display:flex;align-items:center;justify-content:center;font-size:24px;">${unlocked ? b.icon : "\uD83D\uDD12"}</div>`;
+  }).join("");
+  return `
+    ${topBarHtml({ showBack: false })}
+    <div style="margin-bottom:6px;">
+      <div class="row between" style="font-size:11px;opacity:.7;margin-bottom:4px;"><span>Level ${level}</span><span>${starsIntoLevel}/100 to next level</span></div>
+      <div style="height:8px;border-radius:999px;background:var(--plum);overflow:hidden;"><div style="height:100%;width:${starsIntoLevel}%;background:linear-gradient(90deg,var(--coral),var(--gold));border-radius:999px;"></div></div>
+    </div>
+    <div style="margin:22px 0 6px;">
+      <div style="font-size:11px;opacity:.7;margin-bottom:6px;">Difficulty Level</div>
+      <div style="display:flex;gap:8px;">
+        ${[[3, "3rd", "Easy"], [4, "4th", "Normal"], [5, "5th", "Hard"]].map(([g, label, sub]) => `
+          <button data-action="set-grade" data-grade="${g}" style="flex:1;padding:10px 4px;border-radius:12px;border:2px solid ${state.grade === g ? "var(--gold)" : "rgba(255,255,255,.15)"};background:${state.grade === g ? "var(--gold)" : "var(--plum)"};color:${state.grade === g ? "var(--plum)" : "var(--cream)"};cursor:pointer;text-align:center;">
+            <div class="display" style="font-size:14px;">${label}</div>
+            <div style="font-size:10px;opacity:.85;">${sub}</div>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+    <h2 class="display" style="font-size:18px;margin:24px 0 12px;opacity:.9;">The Learning Realms</h2>
+    <button data-action="go-trail-math" class="realm-tile" style="background:linear-gradient(135deg,#FF6B5E,#FFC94A);">
+      <div class="row gap-3">
+        <div style="width:54px;height:54px;border-radius:16px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:26px;">\uD83D\uDD22</div>
+        <div style="text-align:left;">
+          <div class="display" style="font-size:18px;color:#fff;">Number Realm</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.85);">${mathDone}/${MATH_TOPICS.length} quests completed</div>
+        </div>
+      </div>
+    </button>
+    <button data-action="go-trail-reading" class="realm-tile" style="background:linear-gradient(135deg,#10B981,#3DDC97);">
+      <div class="row gap-3">
+        <div style="width:54px;height:54px;border-radius:16px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:26px;">\uD83D\uDCD6</div>
+        <div style="text-align:left;">
+          <div class="display" style="font-size:18px;color:#fff;">Word Realm</div>
+          <div style="font-size:12px;color:rgba(255,255,255,.85);">${readingDone}/${READING_TOPICS.length} quests completed</div>
+        </div>
+      </div>
+    </button>
+    <div class="row between" style="margin-top:24px;margin-bottom:8px;">
+      <h2 class="display" style="font-size:16px;opacity:.9;margin:0;">\uD83C\uDF93 Learning Path</h2>
+    </div>
+    <p style="font-size:11px;opacity:.6;margin-bottom:10px;">A structured, homeschool-style program: watch, practice, then pass a unit test to unlock the next week.</p>
+    <div style="display:flex;gap:10px;margin-bottom:6px;">
+      <button data-action="go-learning-path-math" style="flex:1;padding:12px;border-radius:14px;border:2px solid #FF6B5E;background:rgba(255,107,94,.12);color:var(--cream);cursor:pointer;text-align:center;">
+        <div style="font-size:20px;">\uD83D\uDD22</div>
+        <div class="display" style="font-size:13px;">Math Path</div>
+      </button>
+      <button data-action="go-learning-path-reading" style="flex:1;padding:12px;border-radius:14px;border:2px solid #3DDC97;background:rgba(61,220,151,.12);color:var(--cream);cursor:pointer;text-align:center;">
+        <div style="font-size:20px;">\uD83D\uDCD6</div>
+        <div class="display" style="font-size:13px;">Reading Path</div>
+      </button>
+    </div>
+    <div class="row between" style="margin-top:28px;margin-bottom:12px;">
+      <h2 class="display" style="font-size:16px;opacity:.9;margin:0;">Badges</h2>
+      <button data-action="go-badges" class="link-btn">See all \u2192</button>
+    </div>
+    <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;">${badgesHtml}</div>
+    <div style="text-align:center;margin-top:36px;display:flex;flex-direction:column;gap:8px;">
+      <button data-action="email-report" class="link-btn" style="color:rgba(255,255,255,.55);">\uD83D\uDCE7 Email progress report</button>
+      <button data-action="reset-progress" class="link-btn" style="color:rgba(255,255,255,.4);">Reset progress</button>
+      <a href="./admin.html" style="font-size:13px;color:rgba(255,255,255,.3);text-decoration:underline;margin-top:8px;">Administrator Access</a>
+    </div>
+  `;
+}
+
+function renderTrail(subject) {
+  const topics = subject === "math" ? MATH_TOPICS : READING_TOPICS;
+  const title = subject === "math" ? "Number Realm" : "Word Realm";
+  const trailColor = subject === "math" ? "#FF6B5E" : "#3DDC97";
+  const VIEWBOX_W = 320;
+  const height = 70 + topics.length * 148;
+  const points = topics.map((t, i) => {
+    const pos = getNodePos(i);
+    return { x: (pos.xPct / 100) * VIEWBOX_W, y: pos.y };
+  });
+  const pathD = buildTrailPath(points);
+  const nodesHtml = topics.map((topic, i) => {
+    const pos = getNodePos(i);
+    const stats = state.progress.topics[topic.id];
+    const rating = stats ? (stats.bestPercent >= 0.8 ? 3 : stats.bestPercent >= 0.5 ? 2 : 1) : 0;
+    return `
+    <button data-action="start-quiz" data-topic="${topic.id}" style="position:absolute;left:${pos.xPct}%;top:${pos.y}px;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:6px;width:96px;border:none;background:none;cursor:pointer;">
+      <div style="width:64px;height:64px;border-radius:50%;background:${topic.color};display:flex;align-items:center;justify-content:center;border:3px solid var(--cream);box-shadow:0 4px 10px rgba(0,0,0,.35);font-size:28px;">${topic.icon}</div>
+      <div style="font-size:12px;text-align:center;line-height:1.2;color:var(--cream);">${topic.name}</div>
+      ${starRowHtml(rating, 13)}
+    </button>`;
+  }).join("");
+  return `
+    ${topBarHtml({ showBack: true, backAction: "go-home" })}
+    <h2 class="display" style="font-size:20px;margin-bottom:16px;color:${trailColor};">${title}</h2>
+    <div style="position:relative;height:${height}px;">
+      <svg viewBox="0 0 ${VIEWBOX_W} ${height}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;">
+        <path d="${pathD}" fill="none" stroke="${trailColor}" stroke-width="6" stroke-dasharray="2 14" stroke-linecap="round" opacity="0.45"/>
+      </svg>
+      ${nodesHtml}
+    </div>
+  `;
+}
+
+function renderLearningPath(subject) {
+  const curriculum = CURRICULUM_BY_SUBJECT[subject];
+  const title = subject === "math" ? "Number Realm Learning Path" : "Word Realm Learning Path";
+  const accent = subject === "math" ? "#FF6B5E" : "#3DDC97";
+
+  const cardsHtml = curriculum.map((unit, i) => {
+    const topic = TOPICS_BY_ID[unit.topicId];
+    const unlocked = isUnitUnlocked(curriculum, i);
+    const up = getUnitProgress(unit.topicId);
+    const video = MODULE_INTRO_VIDEOS[unit.topicId];
+    const statusLabel = !unlocked ? "Locked" : up.passed ? "Mastered" : up.testTimesTaken > 0 ? "Retake needed" : "In progress";
+    const statusColor = !unlocked ? "rgba(255,255,255,.4)" : up.passed ? "var(--green)" : up.testTimesTaken > 0 ? "var(--coral)" : "var(--gold)";
+
+    const dayChecklist = unlocked ? `
+      <div style="display:flex;gap:6px;margin:10px 0;">
+        <div title="Watch intro video" style="flex:1;height:6px;border-radius:999px;background:${video ? accent : "rgba(255,255,255,.15)"};opacity:.9;"></div>
+        ${[1, 2].map((d) => `<div title="Practice day ${d}" style="flex:1;height:6px;border-radius:999px;background:${up.practiceCount >= d ? accent : "rgba(255,255,255,.15)"};"></div>`).join("")}
+        <div title="Review" style="flex:1;height:6px;border-radius:999px;background:${up.practiceCount >= PRACTICE_DAYS_RECOMMENDED ? accent : "rgba(255,255,255,.15)"};"></div>
+        <div title="Unit test" style="flex:1;height:6px;border-radius:999px;background:${up.passed ? "var(--green)" : "rgba(255,255,255,.15)"};"></div>
+      </div>` : "";
+
+    const actionsHtml = !unlocked ? `
+      <div style="font-size:12px;opacity:.6;margin-top:8px;">\uD83D\uDD12 Pass the Week ${unit.week - 1} unit test to unlock</div>
+    ` : `
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+        ${video ? `<a href="${video.url}" target="_blank" rel="noopener" style="font-size:12px;text-decoration:none;color:var(--cream);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:8px 12px;">\uD83D\uDCFA Watch: ${escapeHtml(video.title)}</a>` : ""}
+        <button data-action="start-practice" data-topic="${unit.topicId}" style="font-size:12px;color:var(--cream);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:8px 12px;cursor:pointer;">\uD83D\uDCDD Practice (${up.practiceCount} done)</button>
+        <button data-action="start-unit-test" data-topic="${unit.topicId}" style="font-size:12px;color:var(--plum);background:${accent};border:none;border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:700;">${up.passed ? "\u2705 Retake Unit Test" : "\uD83C\uDFAF Take Unit Test"}</button>
+      </div>
+      ${up.testTimesTaken > 0 ? `<div style="font-size:11px;opacity:.65;margin-top:6px;">Best test score: ${Math.round(up.testBest * 100)}% (need ${Math.round(UNIT_PASS_THRESHOLD * 100)}% to pass)</div>` : ""}
+    `;
+
+    return `
+    <div class="card" style="margin-bottom:14px;opacity:${unlocked ? 1 : 0.55};">
+      <div class="row between" style="margin-bottom:4px;">
+        <div style="font-size:11px;opacity:.65;">WEEK ${unit.week}</div>
+        <div style="font-size:11px;font-weight:700;color:${statusColor};">${unlocked ? "" : "\uD83D\uDD12 "}${statusLabel}</div>
+      </div>
+      <div class="row gap-3">
+        <div style="width:44px;height:44px;border-radius:12px;background:${topic.color};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${topic.icon}</div>
+        <div class="display" style="font-size:16px;">${topic.name}</div>
+      </div>
+      ${dayChecklist}
+      ${actionsHtml}
+    </div>`;
+  }).join("");
+
+  return `
+    ${topBarHtml({ showBack: true, backAction: "go-home" })}
+    <h2 class="display" style="font-size:20px;margin-bottom:4px;color:${accent};">${title}</h2>
+    <p style="font-size:12px;opacity:.7;margin-bottom:18px;">A guided week-by-week program \u2014 watch, practice, then pass the unit test to move on.</p>
+    ${cardsHtml}
+    <button data-action="go-progress-report-${subject}" class="btn-secondary" style="margin-top:8px;">\uD83D\uDCCA View Progress Report</button>
+  `;
+}
+
+function renderProgressReport(subject) {
+  const curriculum = CURRICULUM_BY_SUBJECT[subject];
+  const title = subject === "math" ? "Number Realm Progress Report" : "Word Realm Progress Report";
+  const accent = subject === "math" ? "#FF6B5E" : "#3DDC97";
+  const masteredCount = curriculum.filter((u) => getUnitProgress(u.topicId).passed).length;
+  const weakSpots = curriculum
+    .map((u) => ({ u, up: getUnitProgress(u.topicId) }))
+    .filter(({ up }) => up.testTimesTaken > 0 && up.testBest < UNIT_PASS_THRESHOLD)
+    .map(({ u }) => TOPICS_BY_ID[u.topicId].name);
+
+  const rowsHtml = curriculum.map((unit) => {
+    const topic = TOPICS_BY_ID[unit.topicId];
+    const up = getUnitProgress(unit.topicId);
+    const scoreLabel = up.testTimesTaken > 0 ? `${Math.round(up.testBest * 100)}%` : "\u2014";
+    const dot = up.passed ? "var(--green)" : up.testTimesTaken > 0 ? "var(--coral)" : "rgba(255,255,255,.3)";
+    return `
+    <div class="row between" style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+      <div class="row gap-2"><span style="width:9px;height:9px;border-radius:50%;background:${dot};display:inline-block;"></span><span style="font-size:13px;">Wk ${unit.week} \u00b7 ${topic.name}</span></div>
+      <div style="font-size:13px;font-weight:700;">${scoreLabel}</div>
+    </div>`;
+  }).join("");
+
+  return `
+    ${topBarHtml({ showBack: true, backAction: `go-learning-path-${subject}` })}
+    <h2 class="display" style="font-size:20px;margin-bottom:4px;color:${accent};">${title}</h2>
+    <p style="font-size:12px;opacity:.7;margin-bottom:16px;">${masteredCount}/${curriculum.length} units mastered</p>
+    <div class="card" style="margin-bottom:16px;">${rowsHtml}</div>
+    ${weakSpots.length ? `<div class="card" style="margin-bottom:16px;border:2px solid var(--coral);"><div class="display" style="font-size:13px;color:var(--coral);margin-bottom:6px;">Needs review</div><div style="font-size:12px;opacity:.85;">${weakSpots.map(escapeHtml).join(", ")}</div></div>` : ""}
+    <button data-action="email-report" class="btn-secondary">\uD83D\uDCE7 Email this report</button>
+  `;
+}
+
+function renderAdminLogin() {
+  return `
+  <div style="padding-top:40px;text-align:center;">
+    <div style="text-align:left;margin-bottom:20px;"><button data-action="go-roster" class="icon-btn" aria-label="Back">\u2190</button></div>
+    <div style="font-size:44px;margin-bottom:8px;">\uD83D\uDD12</div>
+    <h1 class="display" style="font-size:22px;margin:0 0 6px;color:var(--gold);">Admin Dashboard</h1>
+    <p style="opacity:.8;margin-bottom:22px;font-size:14px;">Enter the parent/teacher PIN to view progress across all students.</p>
+    <input id="admin-pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="PIN" value="${escapeHtml(state.adminPinInput || "")}" style="width:100%;padding:12px 14px;border-radius:14px;border:2px solid var(--plum);background:var(--cream);color:var(--plum);font-size:16px;margin-bottom:14px;text-align:center;letter-spacing:4px;font-family:'Nunito',sans-serif;">
+    ${state.adminError ? `<div style="color:var(--coral);font-size:13px;margin-bottom:14px;">${escapeHtml(state.adminError)}</div>` : ""}
+    <button data-action="admin-pin-submit" class="btn-primary">Enter</button>
+  </div>`;
+}
+
+function renderAdminDashboard() {
+  if (state.adminLoading) {
+    return `
+    ${topBarHtml({ showBack: true, backAction: "go-roster" })}
+    <div style="text-align:center;padding-top:60px;opacity:.75;">Loading progress from the cloud\u2026</div>`;
+  }
+  const data = state.adminData;
+  if (!data || data.error) {
+    return `
+    ${topBarHtml({ showBack: true, backAction: "go-roster" })}
+    <div class="card" style="text-align:center;">
+      <div style="font-size:30px;margin-bottom:10px;">\u26A0\uFE0F</div>
+      <div class="display" style="font-size:15px;margin-bottom:8px;">Couldn't load cloud data</div>
+      <div style="font-size:12px;opacity:.75;margin-bottom:16px;">${escapeHtml((data && data.error) || "Unknown error")}. Make sure the Supabase schema has been run (see supabase-schema.sql) and you're online.</div>
+      <button data-action="admin-refresh" class="btn-secondary">Try Again</button>
+    </div>`;
+  }
+
+  const { students, units, topics } = data;
+  const unitsByStudent = {};
+  units.forEach((u) => { (unitsByStudent[u.student_id] = unitsByStudent[u.student_id] || []).push(u); });
+  const topicsByStudent = {};
+  topics.forEach((t) => { (topicsByStudent[t.student_id] = topicsByStudent[t.student_id] || []).push(t); });
+
+  const rosterHtml = students.map((s) => {
+    const sUnits = unitsByStudent[s.id] || [];
+    const mastered = sUnits.filter((u) => u.passed).length;
+    const sessionsPlayed = (topicsByStudent[s.id] || []).reduce((sum, t) => sum + (t.times_played || 0), 0);
+    const weakest = sUnits.filter((u) => u.test_times_taken > 0).sort((a, b) => a.test_best - b.test_best)[0];
+    return `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="row gap-3" style="margin-bottom:6px;">
+        <div style="font-size:26px;">${s.avatar || "\uD83E\uDDB8"}</div>
+        <div style="flex:1;">
+          <div class="display" style="font-size:15px;">${escapeHtml(s.name)}</div>
+          <div style="font-size:11px;opacity:.65;">Grade ${s.grade || 3} \u00b7 ${mastered}/${sUnits.length || 0} units mastered \u00b7 ${sessionsPlayed} sessions played</div>
+        </div>
+      </div>
+      ${weakest ? `<div style="font-size:12px;color:var(--coral);">Weakest: ${escapeHtml(TOPICS_BY_ID[weakest.topic_id] ? TOPICS_BY_ID[weakest.topic_id].name : weakest.topic_id)} (${Math.round(weakest.test_best * 100)}%)</div>` : `<div style="font-size:12px;opacity:.5;">No unit tests taken yet</div>`}
+    </div>`;
+  }).join("") || `<div style="text-align:center;opacity:.6;font-size:13px;padding:20px 0;">No students synced to the cloud yet.</div>`;
+
+  const challenges = computeRecurringChallenges(units).slice(0, 5);
+  const challengesHtml = challenges.length ? challenges.map((c) => {
+    const topic = TOPICS_BY_ID[c.topicId];
+    return `
+    <div class="row between" style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);">
+      <div style="font-size:13px;">${topic ? topic.icon : ""} ${escapeHtml(topic ? topic.name : c.topicId)}</div>
+      <div style="text-align:right;">
+        <div style="font-size:12px;font-weight:700;color:${c.passRate < 0.5 ? "var(--coral)" : "var(--gold)"};">${Math.round(c.passRate * 100)}% pass rate</div>
+        <div style="font-size:10px;opacity:.6;">${c.attempted} attempted \u00b7 avg ${Math.round(c.avgScore * 100)}%</div>
+      </div>
+    </div>`;
+  }).join("") : `<div style="text-align:center;opacity:.6;font-size:13px;padding:14px 0;">Not enough unit test data yet to spot patterns.</div>`;
+
+  return `
+    ${topBarHtml({ showBack: true, backAction: "go-roster" })}
+    <div class="row between" style="margin-bottom:4px;">
+      <h2 class="display" style="font-size:20px;color:var(--gold);">Admin Dashboard</h2>
+      <button data-action="admin-refresh" class="link-btn">\u21BB Refresh</button>
+    </div>
+    <p style="font-size:12px;opacity:.7;margin-bottom:16px;">${students.length} student${students.length === 1 ? "" : "s"} synced to the cloud.</p>
+
+    <h3 class="display" style="font-size:15px;margin-bottom:8px;color:var(--coral);">\uD83D\uDD25 Recurring Challenges</h3>
+    <p style="font-size:11px;opacity:.65;margin-bottom:8px;">Units where the most students are struggling, across everyone tracked.</p>
+    <div class="card" style="margin-bottom:20px;">${challengesHtml}</div>
+
+    <h3 class="display" style="font-size:15px;margin-bottom:8px;">Students</h3>
+    ${rosterHtml}
+  `;
+}
+
+function renderQuiz() {
+  const q = state.quizQuestions[state.qIndex];
+  if (!q) return "";
+  const longOptions = q.options.some((o) => o.length > 22);
+  const optsHtml = q.options.map((opt) => {
+    let bg = "rgba(255,255,255,.06)", border = "2px solid rgba(255,255,255,.15)", mark = "";
+    if (state.showFeedback) {
+      if (opt === q.correct) {
+        bg = "rgba(61,220,151,.25)"; border = "2px solid var(--green)";
+        mark = '<span style="color:var(--green);margin-right:6px;">\u2713</span>';
+      } else if (opt === state.selectedOption) {
+        bg = "rgba(255,107,94,.25)"; border = "2px solid var(--coral)";
+        mark = '<span style="color:var(--coral);margin-right:6px;">\u2715</span>';
+      }
+    }
+    return `<button data-action="select-option" data-value="${escapeHtml(opt)}" ${state.showFeedback ? "disabled" : ""} style="padding:14px 12px;border-radius:14px;border:${border};background:${bg};color:var(--cream);font-size:15px;cursor:${state.showFeedback ? "default" : "pointer"};display:flex;align-items:center;justify-content:center;gap:6px;text-align:center;min-height:56px;">${mark}${escapeHtml(opt)}</button>`;
+  }).join("");
+
+  const video = TOPIC_VIDEOS[state.activeTopic.id];
+  const videoLinkHtml = (state.showFeedback && state.selectedOption !== q.correct && video) ? `
+    <a href="${video.url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;background:var(--plum);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:10px 14px;margin-bottom:14px;text-decoration:none;color:var(--cream);font-size:13px;">
+      <span style="font-size:18px;">\uD83D\uDCFA</span>
+      <span style="text-align:left;">Need a refresher? Watch <strong>${escapeHtml(video.title)}</strong> (${escapeHtml(video.channel)})</span>
+    </a>` : "";
+
+  const feedbackHtml = state.showFeedback ? `
+    <div class="pop" style="margin-top:18px;text-align:center;">
+      <div class="display" style="font-size:16px;color:${state.selectedOption === q.correct ? "var(--green)" : "var(--coral)"};margin-bottom:4px;">
+        ${state.selectedOption === q.correct ? "Nice work!" : `Not quite \u2014 it's ${escapeHtml(q.correct)}`}
+      </div>
+      ${q.explain ? `<div style="font-size:13px;opacity:.8;margin-bottom:12px;">${escapeHtml(q.explain)}</div>` : ""}
+      <div>${videoLinkHtml}</div>
+      <button data-action="next-question" class="btn-primary">${state.qIndex + 1 < state.quizQuestions.length ? "Next Question" : "See Results"}</button>
+    </div>` : "";
+
+  return `
+    <div class="row between" style="margin-bottom:14px;">
+      <div class="row gap-2">
+        <button data-action="exit-quiz" class="icon-btn" aria-label="Exit quest">\u2190</button>
+        <button data-action="go-home" class="icon-btn" aria-label="Home">\uD83C\uDFE0</button>
+      </div>
+      <div class="display" style="font-size:14px;">${state.activeTopic.name}</div>
+      <div style="font-size:13px;opacity:.75;">${state.qIndex + 1}/${state.quizQuestions.length}</div>
+    </div>
+    <div style="height:8px;border-radius:999px;background:var(--plum);margin-bottom:18px;overflow:hidden;">
+      <div style="height:100%;width:${(state.qIndex / state.quizQuestions.length) * 100}%;background:${state.activeTopic.color};border-radius:999px;transition:width .3s;"></div>
+    </div>
+    ${state.streak >= 2 ? `<div class="row center gap-2" style="margin-bottom:10px;color:var(--gold);font-size:13px;">\uD83D\uDD25 ${state.streak} in a row!</div>` : ""}
+    <div class="card" style="margin-bottom:18px;">
+      ${q.passage ? `<div style="background:var(--cream);color:var(--plum);border-radius:14px;padding:14px;margin-bottom:16px;font-size:14px;line-height:1.5;">${escapeHtml(q.passage)}</div>` : ""}
+      ${(() => { const vis = questionVisualHtml(q, state.activeTopic.id); return vis ? `<div style="display:flex;justify-content:center;margin-bottom:16px;">${vis}</div>` : ""; })()}
+      <div class="display" style="font-size:18px;text-align:center;line-height:1.4;">${escapeHtml(q.q)}</div>
+    </div>
+    <div class="pop" style="display:grid;grid-template-columns:${longOptions ? "1fr" : "1fr 1fr"};gap:10px;">${optsHtml}</div>
+    ${feedbackHtml}
+  `;
+}
+
+function renderResults() {
+  const r = state.lastResult;
+  if (!r) return "";
+  const starsHtml = [0, 1, 2].map((i) => `<span class="${i < r.ratingStars ? "twinkle" : ""}" style="font-size:44px;color:var(--gold);">${i < r.ratingStars ? "\u2605" : "\u2606"}</span>`).join("");
+  const badgesHtml = r.newBadges.length ? `
+    <div style="margin-bottom:24px;">
+      <div class="display" style="font-size:14px;color:var(--gold);margin-bottom:10px;">New badge unlocked!</div>
+      ${r.newBadges.map((b) => `
+        <div class="pop row gap-3" style="background:var(--plum);border:2px solid var(--gold);border-radius:16px;padding:14px;margin-bottom:8px;text-align:left;">
+          <span style="font-size:28px;">${b.icon}</span>
+          <div><div class="display" style="font-size:14px;">${b.name}</div><div style="font-size:12px;opacity:.75;">${b.desc}</div></div>
+        </div>`).join("")}
+    </div>` : "";
+  const recapVideo = TOPIC_VIDEOS[state.activeTopic.id];
+  const recapHtml = (r.correct < r.total && recapVideo) ? `
+    <a href="${recapVideo.url}" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;background:var(--plum);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:12px 14px;margin-bottom:20px;text-decoration:none;color:var(--cream);text-align:left;">
+      <span style="font-size:22px;">\uD83D\uDCFA</span>
+      <div>
+        <div style="font-size:11px;opacity:.7;">Want more practice with ${escapeHtml(state.activeTopic.name)}?</div>
+        <div style="font-size:13px;font-weight:700;">${escapeHtml(recapVideo.title)} <span style="opacity:.7;font-weight:400;">\u2014 ${escapeHtml(recapVideo.channel)}</span></div>
+      </div>
+    </a>` : "";
+
+  const unitBannerHtml = r.isUnitTest ? `
+    <div class="pop" style="margin-bottom:20px;padding:14px;border-radius:14px;background:${r.unitPassed ? "rgba(61,220,151,.15)" : "rgba(255,107,94,.15)"};border:2px solid ${r.unitPassed ? "var(--green)" : "var(--coral)"};">
+      <div class="display" style="font-size:16px;color:${r.unitPassed ? "var(--green)" : "var(--coral)"};">
+        ${r.unitPassed ? (r.unitJustPassed ? "\u2705 Unit Test Passed \u2014 next unit unlocked!" : "\u2705 Unit already mastered") : `Not yet \u2014 need ${Math.round(UNIT_PASS_THRESHOLD * 100)}% to pass`}
+      </div>
+    </div>` : "";
+
+  const backAction = (r.isUnitTest || r.fromLearningPath)
+    ? `go-learning-path-${state.activeTopic.subject}`
+    : "back-to-map";
+  const playAgainAction = r.isUnitTest ? "retry-unit-test" : "play-again";
+
+  return `
+    <div style="text-align:left;margin-bottom:6px;">
+      <button data-action="go-home" class="icon-btn" aria-label="Home">\uD83C\uDFE0</button>
+    </div>
+    <div style="text-align:center;padding-top:10px;">
+      <div class="pop row center gap-2" style="margin-bottom:16px;">${starsHtml}</div>
+      <h2 class="display" style="font-size:24px;margin-bottom:6px;">${r.correct}/${r.total} correct!</h2>
+      <p style="opacity:.85;margin-bottom:22px;">+${r.starsEarned} stars earned</p>
+      ${unitBannerHtml}
+      ${badgesHtml}
+      ${recapHtml}
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <button data-action="${playAgainAction}" class="btn-primary">${r.isUnitTest ? "Retake Unit Test" : "Play Again"}</button>
+        <button data-action="${backAction}" class="btn-secondary">${(r.isUnitTest || r.fromLearningPath) ? "Back to Learning Path" : "Back to Map"}</button>
+      </div>
+    </div>`;
+}
+
+function renderBadges() {
+  const itemsHtml = BADGES.map((b) => {
+    const unlocked = state.progress.badges.includes(b.id);
+    return `<div style="background:${unlocked ? "var(--plum)" : "rgba(255,255,255,.04)"};border:2px solid ${unlocked ? "var(--gold)" : "rgba(255,255,255,.1)"};border-radius:16px;padding:14px;text-align:center;">
+      <div style="font-size:30px;margin-bottom:8px;">${unlocked ? b.icon : "\uD83D\uDD12"}</div>
+      <div class="display" style="font-size:13px;margin-bottom:4px;opacity:${unlocked ? 1 : 0.5};">${b.name}</div>
+      <div style="font-size:11px;opacity:${unlocked ? 0.75 : 0.35};">${b.desc}</div>
+    </div>`;
+  }).join("");
+  return `
+    ${topBarHtml({ showBack: true, backAction: "go-home" })}
+    <h2 class="display" style="font-size:20px;margin-bottom:16px;">Badge Collection</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">${itemsHtml}</div>
+  `;
+}
+
+function render() {
+  const app = document.getElementById("app");
+  let html;
+  switch (state.screen) {
+    case "setup": html = renderSetup(); break;
+    case "new-student": html = renderSetup(); break;
+    case "roster": html = renderRoster(); break;
+    case "admin-login": html = renderAdminLogin(); break;
+    case "admin-dashboard": html = renderAdminDashboard(); break;
+    case "home": html = renderHome(); break;
+    case "trail-math": html = renderTrail("math"); break;
+    case "trail-reading": html = renderTrail("reading"); break;
+    case "learning-path-math": html = renderLearningPath("math"); break;
+    case "learning-path-reading": html = renderLearningPath("reading"); break;
+    case "progress-report-math": html = renderProgressReport("math"); break;
+    case "progress-report-reading": html = renderProgressReport("reading"); break;
+    case "quiz": html = renderQuiz(); break;
+    case "results": html = renderResults(); break;
+    case "badges": html = renderBadges(); break;
+    default: html = "";
+  }
+  app.innerHTML = html;
+}
+
+/* ------------------------------ event wiring ------------------------------ */
+
+document.addEventListener("DOMContentLoaded", () => {
+  const app = document.getElementById("app");
+
+  app.addEventListener("input", (e) => {
+    if (e.target.id === "name-input") {
+      state.setupName = e.target.value;
+    }
+    if (e.target.id === "admin-pin-input") {
+      state.adminPinInput = e.target.value;
+    }
+  });
+
+  app.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-action]");
+    if (!el) return;
+    const action = el.dataset.action;
+    switch (action) {
+      case "pick-avatar": state.setupAvatar = el.dataset.avatar; render(); break;
+      case "start-adventure": createStudent(); break;
+      case "go-new-student": state.setupName = ""; state.setupAvatar = AVATARS[0]; state.screen = "new-student"; render(); break;
+      case "switch-student": switchToStudent(el.dataset.student); break;
+      case "go-roster": state.screen = "roster"; render(); break;
+      case "go-home": state.screen = "home"; render(); break;
+      case "go-admin-login": state.adminPinInput = ""; state.adminError = ""; state.screen = "admin-login"; render(); break;
+      case "admin-pin-submit": checkAdminPin(); break;
+      case "admin-refresh": loadAdminDashboard(); break;
+      case "go-trail-math": state.screen = "trail-math"; render(); break;
+      case "go-trail-reading": state.screen = "trail-reading"; render(); break;
+      case "go-learning-path-math": state.screen = "learning-path-math"; render(); break;
+      case "go-learning-path-reading": state.screen = "learning-path-reading"; render(); break;
+      case "go-progress-report-math": state.screen = "progress-report-math"; render(); break;
+      case "go-progress-report-reading": state.screen = "progress-report-reading"; render(); break;
+      case "go-badges": state.screen = "badges"; render(); break;
+      case "start-quiz": startQuiz(el.dataset.topic); break;
+      case "start-practice": startPractice(el.dataset.topic); break;
+      case "start-unit-test": startUnitTest(el.dataset.topic); break;
+      case "retry-unit-test": startUnitTest(state.activeTopic.id); break;
+      case "exit-quiz": state.screen = (state.unitTestMode || state.fromLearningPath) ? `learning-path-${state.activeTopic.subject}` : (state.activeTopic.subject === "math" ? "trail-math" : "trail-reading"); render(); break;
+      case "select-option": selectOption(el.dataset.value); break;
+      case "next-question": nextQuestion(); break;
+      case "play-again": startQuiz(state.activeTopic.id); break;
+      case "back-to-map": state.screen = state.activeTopic.subject === "math" ? "trail-math" : "trail-reading"; render(); break;
+      case "reset-progress": resetProgress(); break;
+      case "email-report": emailProgressReport(); break;
+      case "set-grade": {
+        state.grade = parseInt(el.dataset.grade, 10);
+        state.profile.grade = state.grade;
+        state.students = state.students.map((s) => (s.id === state.profile.id ? { ...s, grade: state.grade } : s));
+        saveStudents(state.students);
+        cloudSync(() => upsertStudentCloud(state.profile));
+        render();
+        break;
+      }
+    }
+  });
+
+  state.students = migrateLegacyProfileIfNeeded();
+  if (state.students.length === 0) state.students = loadStudents();
+  const activeId = loadActiveStudentId();
+  const activeStudent = state.students.find((s) => s.id === activeId) || state.students[0] || null;
+  if (activeStudent) {
+    state.profile = activeStudent;
+    state.grade = activeStudent.grade || 3;
+    state.progress = loadProgressForStudent(activeStudent.id) || { totalStars: 0, topics: {}, units: {}, badges: [], bestStreak: 0 };
+    if (!state.progress.units) state.progress.units = {}; // migrate older saves
+    state.screen = "home";
+  } else {
+    state.screen = "new-student";
+  }
+  render();
+});
+</script>
+</body>
+</html>
