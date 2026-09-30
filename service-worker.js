@@ -1,10 +1,10 @@
 // Learning Quest service worker — offline-first for the app shell only.
-// Cloud sync (your self-hosted server) is intentionally NEVER cached or intercepted here:
+// Cloud sync (the /api/* sync function) is intentionally NEVER cached or intercepted here:
 // it must always hit the real network or fail cleanly, exactly like the
 // app's own cloudSync() already handles (fire-and-forget, local-first).
 // Bump CACHE_VERSION whenever index.html/admin.html/docs.html/icons change so old
 // clients pick up the new files instead of serving a stale cached copy.
-const CACHE_VERSION = "lq-v2";
+const CACHE_VERSION = "lq-v3";
 const APP_SHELL = [
   "/",
   "/index.html",

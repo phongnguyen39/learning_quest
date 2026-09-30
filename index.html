@@ -54,12 +54,11 @@
 <body>
 <div id="app"></div>
 <script>
-/* ----------------------- Supabase (multi-student cloud sync) ----------------------- */
-// Points at YOUR OWN computer, reached through a tunnel URL (ngrok, etc — see
-// SETUP.md). Replace both values below once your server + tunnel are running.
-// LQ_API_KEY must match the key the server was started with (LQ_API_KEY env var).
-const LQ_SERVER_URL = "https://your-tunnel-url-here.ngrok-free.app";
-const LQ_API_KEY = "change-me-please";
+/* ------------------- Self-hosted sync server (multi-student cloud sync) ------------------- */
+// Sync goes to this same Netlify site (serverless function + Netlify Blobs).
+// No home server or tunnel needed.
+const LQ_SERVER_URL = ""; // same site: the /api/* Netlify Function (netlify/functions/api.mts)
+const LQ_API_KEY = "lq-9f3c2a7e5b1d4c8a"; // must match DEFAULT_KEY (or LQ_API_KEY env var) in the function
 
 async function lqFetch(path, opts) {
   opts = opts || {};
@@ -71,15 +70,14 @@ async function lqFetch(path, opts) {
   const res = await fetch(`${LQ_SERVER_URL}${path}`, { ...opts, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Local server ${opts.method || "GET"} ${path} failed: ${res.status} ${text}`);
+    throw new Error(`Sync ${opts.method || "GET"} ${path} failed: ${res.status} ${text}`);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
 
 // Fire-and-forget: local save always wins immediately, cloud sync happens in
-// the background and silently no-ops if offline (or if your computer/tunnel
-// is down). Never blocks the UI.
+// the background and silently no-ops if offline (or if the sync API is unreachable). Never blocks the UI.
 function cloudSync(fn) {
   Promise.resolve().then(fn).catch((e) => console.warn("[cloud sync]", e.message));
 }
@@ -656,7 +654,7 @@ const SPELLING_BANK = [
   { q: "What is the plural of 'leaf'?", options: ["Leaves", "Leafs", "Leves", "Leafes"], correct: "Leaves", icon: "🍃" },
   { q: "Which word is a compound word?", options: ["Backpack", "Running", "Happy", "Quickly"], correct: "Backpack" },
   { q: "Which is the correct spelling of the silent-letter word meaning 'the opposite of day'?", options: ["Night", "Knight", "Nite", "Nighte"], correct: "Night", icon: "🌙" , grade: 4 },
-  { q: "Which word correctly doubles the consonant before adding '-ing' to 'run'?", options: ["Running", "Runing", "Runninng", "Runing"], correct: "Running", icon: "🏃" , grade: 4 },
+  { q: "Which word correctly doubles the consonant before adding '-ing' to 'run'?", options: ["Running", "Runing", "Runninng", "Runnig"], correct: "Running", icon: "🏃" , grade: 4 },
   { q: "Which word correctly doubles the consonant before adding '-ed' to 'stop'?", options: ["Stopped", "Stoped", "Stopeed", "Stoppped"], correct: "Stopped", icon: "🛑" , grade: 4 },
   { q: "Which word is spelled correctly?", options: ["Climb", "Clime", "Climbe", "Clim"], correct: "Climb" , grade: 4 },
   { q: "Which word correctly adds the suffix '-tion' to the word 'act'?", options: ["Action", "Acttion", "Actsion", "Acktion"], correct: "Action", icon: "🎭" , grade: 4 },
@@ -1321,9 +1319,9 @@ async function loadAdminDashboard() {
   render();
   try {
     const [students, units, topics] = await Promise.all([
-      sbFetch("students?select=*&order=name.asc"),
-      sbFetch("unit_progress?select=*"),
-      sbFetch("topic_progress?select=*"),
+      lqFetch("/api/students"),
+      lqFetch("/api/unit-progress"),
+      lqFetch("/api/topic-progress"),
     ]);
     state.adminData = { students: students || [], units: units || [], topics: topics || [] };
   } catch (e) {
@@ -1729,7 +1727,7 @@ function renderAdminDashboard() {
     <div class="card" style="text-align:center;">
       <div style="font-size:30px;margin-bottom:10px;">\u26A0\uFE0F</div>
       <div class="display" style="font-size:15px;margin-bottom:8px;">Couldn't load cloud data</div>
-      <div style="font-size:12px;opacity:.75;margin-bottom:16px;">${escapeHtml((data && data.error) || "Unknown error")}. Make sure the Supabase schema has been run (see supabase-schema.sql) and you're online.</div>
+      <div style="font-size:12px;opacity:.75;margin-bottom:16px;">${escapeHtml((data && data.error) || "Unknown error")}. Check that you're online and try again.</div>
       <button data-action="admin-refresh" class="btn-secondary">Try Again</button>
     </div>`;
   }

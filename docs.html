@@ -123,7 +123,7 @@
 
     <div class="card">
       <h2 class="display">How data gets here</h2>
-      <p>Every device syncs in the background to your own Learning Quest server (a small program running on your home computer, reached over the internet through an ngrok tunnel). This means a student can practice on a tablet, a laptop, and a phone, and all their progress ends up in the same place — you're not looking at just one device's data.</p>
+      <p>Every device syncs in the background to the Learning Quest sync service, which runs on the same Netlify site as the app (nothing needs to run on your computer). This means a student can practice on a tablet, a laptop, and a phone, and all their progress ends up in the same place — you're not looking at just one device's data.</p>
       <p>Sync happens automatically after every practice session and unit test. It's "fire and forget" — if a device is offline, nothing breaks, it just catches up next time it's back online.</p>
     </div>
 
@@ -139,7 +139,7 @@
 
     <div class="card">
       <h2 class="display">Managing students</h2>
-      <p>There's no separate "delete student" button yet — students are created the first time a name is entered on a device. If you need to remove or rename someone, that currently requires a direct edit in the server's SQLite database (the <code>students</code> table) or clearing local storage on that device before it's ever synced.</p>
+      <p>There's no separate "delete student" button yet — students are created the first time a name is entered on a device. If you need to remove or rename someone, that currently requires deleting that student's entry from the site's Netlify Blobs store (<code>learning-quest</code>, key <code>students/…</code>) in the Netlify dashboard or clearing local storage on that device before it's ever synced.</p>
     </div>
   </div>
 

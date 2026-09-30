@@ -35,21 +35,21 @@
 <script>
 /* This is an intentionally simple, separate page from the main app — same
    Netlify site, its own file, gated by one shared password. It reads
-   directly from your local server, so it works regardless of which device/browser
+   directly from the sync API on this site, so it works regardless of which device/browser
    any student played on. "We'll do more with this later" per the user —
    for now this is a single shared password, not per-admin accounts. */
 
-// Points at YOUR OWN computer, reached through a tunnel URL (ngrok, etc — see
-// SETUP.md). Replace both values below once your server + tunnel are running.
-const LQ_SERVER_URL = "https://your-tunnel-url-here.ngrok-free.app";
-const LQ_API_KEY = "change-me-please";
+// Sync goes to this same Netlify site (serverless function + Netlify Blobs).
+// No home server or tunnel needed.
+const LQ_SERVER_URL = ""; // same site: the /api/* Netlify Function (netlify/functions/api.mts)
+const LQ_API_KEY = "lq-9f3c2a7e5b1d4c8a"; // must match DEFAULT_KEY (or LQ_API_KEY env var) in the function
 const ADMIN_PASSWORD = "test"; // placeholder for now, per user request — replace with something real before sharing this URL widely
 
 async function lqFetch(path) {
   const res = await fetch(`${LQ_SERVER_URL}${path}`, {
     headers: { "X-API-Key": LQ_API_KEY, "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`Local server GET ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Sync GET ${path} failed: ${res.status}`);
   return res.json();
 }
 
@@ -129,7 +129,7 @@ function renderDashboard() {
     <div class="card" style="text-align:center;">
       <div style="font-size:30px;margin-bottom:10px;">\u26A0\uFE0F</div>
       <div class="display" style="font-size:15px;margin-bottom:8px;">Couldn't load cloud data</div>
-      <div style="font-size:12px;opacity:.75;">${escapeHtml((data && data.error) || "Unknown error")}. Make sure your local server is running and your tunnel URL is reachable.</div>
+      <div style="font-size:12px;opacity:.75;">${escapeHtml((data && data.error) || "Unknown error")}. Check that you're online and try again.</div>
     </div>`;
   }
   const { students, units, topics } = data;
