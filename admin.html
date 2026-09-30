@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Learning Quest — Administrator Access</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1B1640">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap');
   :root{ --bg:#1B1640; --gold:#FFC94A; --coral:#FF6B5E; --green:#3DDC97; --cream:#FBF3DD; --plum:#2E2350; }
@@ -32,19 +35,21 @@
 <script>
 /* This is an intentionally simple, separate page from the main app — same
    Netlify site, its own file, gated by one shared password. It reads
-   directly from Supabase, so it works regardless of which device/browser
+   directly from your local server, so it works regardless of which device/browser
    any student played on. "We'll do more with this later" per the user —
    for now this is a single shared password, not per-admin accounts. */
 
-const SUPABASE_URL = "https://elgymzclvddcvsmipqoi.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVsZ3ltemNsdmRkY3ZzbWlwcW9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4Mjg0OTcsImV4cCI6MjEwMTQwNDQ5N30.5WvhelM7r8t5meAWaz5OFT6wHp63LUQ9amDH_SO9D4o";
+// Points at YOUR OWN computer, reached through a tunnel URL (ngrok, etc — see
+// SETUP.md). Replace both values below once your server + tunnel are running.
+const LQ_SERVER_URL = "https://your-tunnel-url-here.ngrok-free.app";
+const LQ_API_KEY = "change-me-please";
 const ADMIN_PASSWORD = "test"; // placeholder for now, per user request — replace with something real before sharing this URL widely
 
-async function sbFetch(path) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+async function lqFetch(path) {
+  const res = await fetch(`${LQ_SERVER_URL}${path}`, {
+    headers: { "X-API-Key": LQ_API_KEY, "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`Supabase GET ${path} failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Local server GET ${path} failed: ${res.status}`);
   return res.json();
 }
 
@@ -86,9 +91,9 @@ async function tryLogin() {
     render();
     try {
       const [students, units, topics] = await Promise.all([
-        sbFetch("students?select=*&order=name.asc"),
-        sbFetch("unit_progress?select=*"),
-        sbFetch("topic_progress?select=*"),
+        lqFetch("/api/students"),
+        lqFetch("/api/unit-progress"),
+        lqFetch("/api/topic-progress"),
       ]);
       state.data = { students, units, topics };
     } catch (e) {
@@ -112,7 +117,7 @@ function renderLogin() {
     <input id="pin-input" type="password" placeholder="Password" value="${escapeHtml(state.pinInput)}" style="width:100%;padding:12px 14px;border-radius:14px;border:2px solid var(--plum);background:var(--cream);color:var(--plum);font-size:16px;margin-bottom:14px;text-align:center;font-family:'Nunito',sans-serif;">
     ${state.error ? `<div style="color:var(--coral);font-size:13px;margin-bottom:14px;">${escapeHtml(state.error)}</div>` : ""}
     <button id="submit-btn" class="btn-primary">Enter</button>
-    <p style="margin-top:24px;"><a href="./learning-quest.html" style="font-size:12px;opacity:.6;">\u2190 Back to Learning Quest</a></p>
+    <p style="margin-top:24px;"><a href="./index.html" style="font-size:12px;opacity:.6;">\u2190 Back to Learning Quest</a> \u00b7 <a href="./docs.html" style="font-size:12px;opacity:.6;">Help</a></p>
   </div>`;
 }
 
@@ -124,7 +129,7 @@ function renderDashboard() {
     <div class="card" style="text-align:center;">
       <div style="font-size:30px;margin-bottom:10px;">\u26A0\uFE0F</div>
       <div class="display" style="font-size:15px;margin-bottom:8px;">Couldn't load cloud data</div>
-      <div style="font-size:12px;opacity:.75;">${escapeHtml((data && data.error) || "Unknown error")}. Make sure the Supabase schema has been run and you're online.</div>
+      <div style="font-size:12px;opacity:.75;">${escapeHtml((data && data.error) || "Unknown error")}. Make sure your local server is running and your tunnel URL is reachable.</div>
     </div>`;
   }
   const { students, units, topics } = data;
@@ -173,7 +178,7 @@ function renderDashboard() {
     <div class="card" style="margin-bottom:20px;">${challengesHtml}</div>
     <h3 class="display" style="font-size:15px;margin-bottom:8px;">Students</h3>
     ${rosterHtml}
-    <p style="margin-top:24px;text-align:center;"><a href="./learning-quest.html" style="font-size:12px;opacity:.6;">\u2190 Back to Learning Quest</a></p>
+    <p style="margin-top:24px;text-align:center;"><a href="./index.html" style="font-size:12px;opacity:.6;">\u2190 Back to Learning Quest</a> \u00b7 <a href="./docs.html" style="font-size:12px;opacity:.6;">Help</a></p>
   `;
 }
 

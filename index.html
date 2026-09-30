@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
 <title>Learning Quest — Math &amp; Reading Adventure</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1B1640">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Learning Quest">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap');
   :root{
@@ -49,72 +55,67 @@
 <div id="app"></div>
 <script>
 /* ----------------------- Supabase (multi-student cloud sync) ----------------------- */
-// Credentials for the shared family/classroom project. Anon key + Row Level
-// Security policy "anon full access" (see supabase-schema.sql) — meant for a
-// private, not-widely-shared deployment URL, not a public multi-tenant app.
-const SUPABASE_URL = "https://elgymzclvddcvsmipqoi.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVsZ3ltemNsdmRkY3ZzbWlwcW9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4Mjg0OTcsImV4cCI6MjEwMTQwNDQ5N30.5WvhelM7r8t5meAWaz5OFT6wHp63LUQ9amDH_SO9D4o";
+// Points at YOUR OWN computer, reached through a tunnel URL (ngrok, etc — see
+// SETUP.md). Replace both values below once your server + tunnel are running.
+// LQ_API_KEY must match the key the server was started with (LQ_API_KEY env var).
+const LQ_SERVER_URL = "https://your-tunnel-url-here.ngrok-free.app";
+const LQ_API_KEY = "change-me-please";
 
-async function sbFetch(path, opts) {
+async function lqFetch(path, opts) {
   opts = opts || {};
   const headers = {
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: "Bearer " + SUPABASE_ANON_KEY,
+    "X-API-Key": LQ_API_KEY,
     "Content-Type": "application/json",
     ...(opts.headers || {}),
   };
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const res = await fetch(`${LQ_SERVER_URL}${path}`, { ...opts, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Supabase ${opts.method || "GET"} ${path} failed: ${res.status} ${text}`);
+    throw new Error(`Local server ${opts.method || "GET"} ${path} failed: ${res.status} ${text}`);
   }
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
 
 // Fire-and-forget: local save always wins immediately, cloud sync happens in
-// the background and silently no-ops if offline. Never blocks the UI.
+// the background and silently no-ops if offline (or if your computer/tunnel
+// is down). Never blocks the UI.
 function cloudSync(fn) {
   Promise.resolve().then(fn).catch((e) => console.warn("[cloud sync]", e.message));
 }
 
 function upsertStudentCloud(student) {
-  return sbFetch(`students?on_conflict=id`, {
+  return lqFetch(`/api/students`, {
     method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify([{ id: student.id, name: student.name, avatar: student.avatar, grade: student.grade || 3 }]),
+    body: JSON.stringify({ id: student.id, name: student.name, avatar: student.avatar, grade: student.grade || 3 }),
   });
 }
 
 function upsertTopicProgressCloud(studentId, topicId, stats) {
-  return sbFetch(`topic_progress?on_conflict=student_id,topic_id`, {
+  return lqFetch(`/api/topic-progress`, {
     method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify([{
+    body: JSON.stringify({
       student_id: studentId, topic_id: topicId,
       times_played: stats.timesPlayed, best_percent: stats.bestPercent,
-      updated_at: new Date().toISOString(),
-    }]),
+    }),
   });
 }
 
 function upsertUnitProgressCloud(studentId, topicId, subject, up) {
-  return sbFetch(`unit_progress?on_conflict=student_id,topic_id`, {
+  return lqFetch(`/api/unit-progress`, {
     method: "POST",
-    headers: { Prefer: "resolution=merge-duplicates" },
-    body: JSON.stringify([{
+    body: JSON.stringify({
       student_id: studentId, topic_id: topicId, subject,
       practice_count: up.practiceCount, test_best: up.testBest,
       test_times_taken: up.testTimesTaken, passed: up.passed,
-      updated_at: new Date().toISOString(),
-    }]),
+    }),
   });
 }
 
 function logSessionCloud(studentId, topicId, subject, sessionType, correct, total, percent) {
-  return sbFetch(`sessions`, {
+  return lqFetch(`/api/sessions`, {
     method: "POST",
-    body: JSON.stringify([{ student_id: studentId, topic_id: topicId, subject, session_type: sessionType, correct, total, percent }]),
+    body: JSON.stringify({ student_id: studentId, topic_id: topicId, subject, session_type: sessionType, correct, total, percent }),
   });
 }
 
@@ -1575,6 +1576,7 @@ function renderHome() {
       <button data-action="email-report" class="link-btn" style="color:rgba(255,255,255,.55);">\uD83D\uDCE7 Email progress report</button>
       <button data-action="reset-progress" class="link-btn" style="color:rgba(255,255,255,.4);">Reset progress</button>
       <a href="./admin.html" style="font-size:13px;color:rgba(255,255,255,.3);text-decoration:underline;margin-top:8px;">Administrator Access</a>
+      <a href="./docs.html" style="font-size:13px;color:rgba(255,255,255,.3);text-decoration:underline;">Help &amp; Guide</a>
     </div>
   `;
 }
@@ -2010,6 +2012,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   render();
 });
+
+// Register the service worker for offline play. Local progress already
+// works offline via localStorage regardless — this just makes the app
+// shell itself (HTML/CSS/JS/icons) loadable with zero connectivity too,
+// so a fresh page load doesn't fail when there's no signal at all.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch((e) => console.warn("[service worker]", e.message));
+  });
+}
 </script>
 </body>
 </html>

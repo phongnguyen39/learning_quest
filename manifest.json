@@ -1,0 +1,16 @@
+{
+  "name": "Learning Quest",
+  "short_name": "LearnQuest",
+  "description": "Math & Reading adventure practice app for kids, with an offline-first Learning Path.",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#1B1640",
+  "theme_color": "#1B1640",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

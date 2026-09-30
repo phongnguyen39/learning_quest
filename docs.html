@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>Learning Quest — Help & Guide</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1B1640">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap');
+  :root{ --bg:#1B1640; --gold:#FFC94A; --coral:#FF6B5E; --green:#3DDC97; --cream:#FBF3DD; --plum:#2E2350; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:'Nunito', system-ui, -apple-system, sans-serif;
+    background:var(--bg); color:var(--cream); min-height:100vh;
+  }
+  .display{ font-family:'Fredoka','Comic Sans MS', system-ui, sans-serif; }
+  #app{ max-width:640px; margin:0 auto; padding:24px 18px 60px; }
+  button{ font-family:inherit; }
+  .card{ background:var(--plum); border-radius:20px; padding:18px 20px; margin-bottom:16px; }
+  .row{ display:flex; align-items:center; }
+  .gap-2 > * + *{ margin-left:8px; }
+  h1.display{ font-size:24px; color:var(--gold); margin:0 0 4px; }
+  h2.display{ font-size:17px; margin:0 0 10px; }
+  h3.display{ font-size:14px; margin:18px 0 6px; }
+  p, li{ font-size:14px; line-height:1.55; opacity:.92; }
+  ol, ul{ padding-left:20px; margin:6px 0 14px; }
+  code{ background:rgba(255,255,255,.1); padding:2px 6px; border-radius:6px; font-size:13px; }
+  a{ color:var(--gold); }
+  .tabs{ display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap; }
+  .tab-btn{
+    flex:1; min-width:100px; padding:12px 10px; border-radius:14px; border:2px solid rgba(255,255,255,.15);
+    background:rgba(255,255,255,.05); color:var(--cream); font-weight:700; font-size:13px; cursor:pointer;
+    font-family:'Fredoka',sans-serif; text-align:center;
+  }
+  .tab-btn.active{ border-color:var(--gold); background:var(--plum); }
+  .section{ display:none; }
+  .section.active{ display:block; }
+  .callout{ border-left:4px solid var(--coral); padding:10px 14px; background:rgba(255,107,94,.08); border-radius:0 12px 12px 0; margin:14px 0; }
+  .callout.green{ border-left-color:var(--green); background:rgba(61,220,151,.08); }
+  .back-link{ display:inline-block; margin-bottom:18px; font-size:13px; opacity:.7; text-decoration:none; color:var(--cream); }
+</style>
+</head>
+<body>
+<div id="app">
+  <a href="./index.html" class="back-link">&larr; Back to Learning Quest</a>
+  <h1 class="display">Help &amp; Guide</h1>
+  <p style="opacity:.7;margin-bottom:20px;">Everything you need to know — for kids, parents, and using it offline.</p>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="student">🧒 For Students</button>
+    <button class="tab-btn" data-tab="admin">🔒 For Parents/Admin</button>
+    <button class="tab-btn" data-tab="offline">📴 Offline Mode</button>
+  </div>
+
+  <!-- ========================= STUDENT ========================= -->
+  <div class="section active" id="section-student">
+    <div class="card">
+      <h2 class="display">Getting started</h2>
+      <ol>
+        <li>When you open the app, you'll see <strong>"Who's Playing?"</strong> — tap your name, or tap <strong>+ Add New</strong> if it's your first time.</li>
+        <li>Pick a name and an avatar (your little icon). Tap <strong>Start Adventure</strong>.</li>
+        <li>You'll land on the Home screen — this is your home base.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2 class="display">Practicing (Number Realm &amp; Word Realm)</h2>
+      <p>Tap <strong>Number Realm</strong> for math topics or <strong>Word Realm</strong> for reading topics. Pick any topic you want to practice — you'll get a short set of questions. Answer them, get instant feedback, and earn stars for correct answers and streaks.</p>
+      <p>You can practice any unlocked topic as many times as you want — it's just for fun and getting better, no pressure.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="display">🎓 Learning Path (the main program)</h2>
+      <p>This is the structured, week-by-week program. Tap <strong>Math Path</strong> or <strong>Reading Path</strong> from the Home screen.</p>
+      <p>Each week is one topic (a "unit"), and each unit has a rhythm:</p>
+      <ul>
+        <li><strong>📺 Watch</strong> — a video that teaches the topic properly, not just a quick recap</li>
+        <li><strong>📝 Practice</strong> — a couple of practice rounds on that topic</li>
+        <li><strong>🎯 Unit Test</strong> — a bigger, 12-question test. Score at least 75% to pass</li>
+      </ul>
+      <div class="callout">
+        <strong>Units unlock in order.</strong> You have to pass a unit's test before the next week's unit unlocks. If you don't pass, that's totally fine — go back and practice more, then retake the test whenever you're ready.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="display">Switching players</h2>
+      <p>If someone else wants to play (a sibling, for example), tap your avatar circle at the top of any screen — it takes you back to "Who's Playing?" so someone else can pick their name.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="display">Stars, badges, and progress</h2>
+      <p>You earn stars for correct answers, and bonus stars for answer streaks and passing unit tests. Keep an eye out for badges too — they show up when you hit certain milestones.</p>
+    </div>
+  </div>
+
+  <!-- ========================= ADMIN ========================= -->
+  <div class="section" id="section-admin">
+    <div class="card">
+      <h2 class="display">Accessing the dashboard</h2>
+      <p>Go to <a href="./admin.html">admin.html</a> (or tap "Administrator Access" at the bottom of the Home screen in the main app). Enter the admin password to get in.</p>
+      <div class="callout">
+        The current password is a placeholder. If you haven't changed it yet, it's worth doing before sharing the app link with anyone outside your household — see "Changing the password" below.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="display">What you'll see</h2>
+      <h3 class="display">🔥 Recurring Challenges</h3>
+      <p>This panel looks across <em>every student</em> who has taken a unit test, and surfaces which topics people are struggling with the most — sorted by pass rate, worst first. If several kids are stuck on the same topic, that's usually a sign the video or practice content for that unit needs another look, rather than any one kid having trouble.</p>
+      <h3 class="display">Students list</h3>
+      <p>Every student who has played on any device shows up here (as long as they're online at some point — see Offline Mode), along with:</p>
+      <ul>
+        <li>Grade level</li>
+        <li>Units mastered out of total units attempted</li>
+        <li>Total practice sessions played</li>
+        <li>Their single weakest unit (lowest test score), if they've taken any unit tests</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2 class="display">How data gets here</h2>
+      <p>Every device syncs in the background to your own Learning Quest server (a small program running on your home computer, reached over the internet through an ngrok tunnel). This means a student can practice on a tablet, a laptop, and a phone, and all their progress ends up in the same place — you're not looking at just one device's data.</p>
+      <p>Sync happens automatically after every practice session and unit test. It's "fire and forget" — if a device is offline, nothing breaks, it just catches up next time it's back online.</p>
+    </div>
+
+    <div class="card">
+      <h2 class="display">Changing the admin password</h2>
+      <p>The password lives in <code>admin.html</code> as a constant near the top of the file:</p>
+      <p><code>const ADMIN_PASSWORD = "test";</code></p>
+      <p>Change the text between the quotes to whatever you want, save the file, and push/redeploy — same process as any other app update.</p>
+      <div class="callout green">
+        This is a simple shared password, not a full login system — good enough for a family setup, but not meant to hold up against someone determined to guess it. Don't reuse a password you use elsewhere.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="display">Managing students</h2>
+      <p>There's no separate "delete student" button yet — students are created the first time a name is entered on a device. If you need to remove or rename someone, that currently requires a direct edit in the server's SQLite database (the <code>students</code> table) or clearing local storage on that device before it's ever synced.</p>
+    </div>
+  </div>
+
+  <!-- ========================= OFFLINE ========================= -->
+  <div class="section" id="section-offline">
+    <div class="card">
+      <h2 class="display">What works without internet</h2>
+      <ul>
+        <li><strong>Playing quizzes and unit tests</strong> — fully works offline. Questions are generated locally, no internet needed.</li>
+        <li><strong>Your progress, stars, and badges</strong> — saved on the device itself (not just the cloud), so nothing is lost if you're offline.</li>
+        <li><strong>Opening the app itself</strong> — once you've opened it at least once with internet, the app can load again later even with zero signal (see "Installing" below).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2 class="display">What needs internet</h2>
+      <ul>
+        <li><strong>Syncing to your server</strong> — so progress shows up on the Admin Dashboard and on other devices. This happens automatically the next time there's a connection; nothing needs to be done manually.</li>
+        <li><strong>The Admin Dashboard itself</strong> — it always pulls live data, so it needs a connection to show anything.</li>
+        <li><strong>Watching the "Learning Path" intro videos</strong> — these are YouTube links, which need internet to actually play.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2 class="display">📲 Installing the app for offline use</h2>
+      <p>For the best offline experience, install the app to the home screen instead of just using it in a browser tab:</p>
+      <h3 class="display">On a phone or tablet (iOS or Android)</h3>
+      <ol>
+        <li>Open the app link in the browser (Safari on iOS, Chrome on Android) while you have internet.</li>
+        <li><strong>iOS:</strong> tap the Share icon → "Add to Home Screen".</li>
+        <li><strong>Android:</strong> tap the menu (⋮) → "Add to Home Screen" or "Install app".</li>
+        <li>Open it from the home screen icon from now on — it'll behave like a regular app, and will keep working even with no signal.</li>
+      </ol>
+      <h3 class="display">On a computer</h3>
+      <ol>
+        <li>Open the app in Chrome or Edge.</li>
+        <li>Look for an install icon in the address bar (or menu → "Install Learning Quest").</li>
+        <li>It'll open in its own window from then on, separate from the browser.</li>
+      </ol>
+      <div class="callout green">
+        You only need to do this once per device, and you need internet the first time so the app can save a copy of itself. After that, it'll open fine with no connection at all.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="display">Good to know</h2>
+      <p>If you make big changes offline across multiple devices before ever syncing (e.g., two devices both play for days with no internet), the most recent sync per topic/unit generally wins — it's not built to intelligently merge conflicting offline histories. For most families playing on one or two regularly-connected devices, this isn't something you'll ever run into.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".section").forEach((s) => s.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("section-" + btn.dataset.tab).classList.add("active");
+  });
+});
+</script>
+</body>
+</html>
